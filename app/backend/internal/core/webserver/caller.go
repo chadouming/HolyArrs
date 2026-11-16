@@ -66,6 +66,9 @@ type Caller struct {
 	// session); AI connections write them into History.
 	KeyID    int64
 	KeyLabel string
+	// OnBehalf is set when an owner or admin key named this person with
+	// X-HolyArrs-User; KeyID and KeyLabel are then the calling key's.
+	OnBehalf bool
 }
 
 type callerKey struct{}

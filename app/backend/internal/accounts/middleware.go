@@ -75,6 +75,13 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 				fail(w, http.StatusUnauthorized, "API key not accepted")
 				return
 			}
+			// An owner or admin key may name the person the call counts
+			// as. AI keys never do: their route is not a request route.
+			if !mcpPath(r.URL.Path) {
+				if who, ok = a.asUser(w, r, who); !ok {
+					return
+				}
+			}
 			next.ServeHTTP(w, r.WithContext(webserver.ContextWith(r.Context(), who)))
 			return
 		}

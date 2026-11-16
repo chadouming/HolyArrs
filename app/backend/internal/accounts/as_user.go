@@ -1,6 +1,14 @@
 package accounts
 
-import "strings"
+import (
+	"database/sql"
+	"errors"
+	"log"
+	"net/http"
+	"strings"
+
+	"github.com/HolyArrs/holyarrs/app/backend/internal/core/webserver"
+)
 
 // AsUserHeader names the person a request counts as: an owner or admin API
 // key sends jellyfin:<Jellyfin user id> and the call runs as the HolyArrs
@@ -21,4 +29,76 @@ func parseAsUser(v string) (provider, extID string, ok bool) {
 		return "", "", false
 	}
 	return p, id, true
+}
+
+// asUserRoute says whether a route honours AsUserHeader: making an ask,
+// reading the weekly limit, listing asks, reading one and taking one back.
+// The list is short on purpose: a key that could act as someone else on
+// every route would be a way into settings and accounts.
+func asUserRoute(r *http.Request) bool {
+	rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/asks")
+	if !ok {
+		return false
+	}
+	switch rest {
+	case "":
+		return r.Method == http.MethodGet || r.Method == http.MethodPost
+	case "/limit":
+		return r.Method == http.MethodGet
+	}
+	id, ok := strings.CutPrefix(rest, "/")
+	if !ok || id == "" || strings.Trim(id, "0123456789") != "" {
+		return false
+	}
+	return r.Method == http.MethodGet || r.Method == http.MethodDelete
+}
+
+// refuseAsUser answers a refused AsUserHeader. code is stable, so the app
+// that sent the header can tell the refusals apart without reading words.
+func refuseAsUser(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, status, map[string]string{"error": msg, "code": code})
+}
+
+// asUser turns an accepted API key's caller into the person AsUserHeader
+// names. Without the header the key's own caller comes back. A refusal is
+// answered here and false returned: the request is never quietly counted as
+// the key's owner, or a person's asks would land under the wrong name.
+func (a *Auth) asUser(w http.ResponseWriter, r *http.Request, key webserver.Caller) (webserver.Caller, bool) {
+	v := strings.TrimSpace(r.Header.Get(AsUserHeader))
+	if v == "" {
+		return key, true
+	}
+	if !asUserRoute(r) {
+		refuseAsUser(w, http.StatusBadRequest, "as_user_route", AsUserHeader+" is not accepted on this route")
+		return webserver.Caller{}, false
+	}
+	// Anyone else's key could spend another person's weekly limit.
+	if key.Role != webserver.RoleOwner && key.Role != webserver.RoleAdmin {
+		refuseAsUser(w, http.StatusForbidden, "as_user_key", "only a key made by the owner or an admin can ask for someone else")
+		return webserver.Caller{}, false
+	}
+	provider, extID, ok := parseAsUser(v)
+	if !ok {
+		refuseAsUser(w, http.StatusBadRequest, "as_user_value", "send "+AsUserHeader+" as jellyfin:<Jellyfin user id>")
+		return webserver.Caller{}, false
+	}
+	var who webserver.Caller
+	perms, state, err := linkedCaller(r.Context(), a.s.Read(), provider, extID, &who)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		refuseAsUser(w, http.StatusNotFound, "user_not_linked", "this Jellyfin user is not linked to a HolyArrs person")
+		return webserver.Caller{}, false
+	case err != nil:
+		log.Printf("auth: %s: %v", AsUserHeader, err)
+		fail(w, http.StatusInternalServerError, "could not look up the linked person")
+		return webserver.Caller{}, false
+	case state != "active":
+		refuseAsUser(w, http.StatusForbidden, "user_off", "the HolyArrs person linked to this Jellyfin user is turned off")
+		return webserver.Caller{}, false
+	}
+	a.fill(&who, perms)
+	// The key still decides what may be called; only who it counts as changes.
+	who.Via, who.KeyID, who.KeyLabel, who.Scopes, who.OnBehalf = key.Via, key.KeyID, key.KeyLabel, key.Scopes, true
+	return who, true
 }
