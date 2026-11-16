@@ -73,6 +73,30 @@ func TestParseAsUser(t *testing.T) {
 	}
 }
 
+// AsUserRoutes is what the API file and the docs are checked against, so it
+// must be exactly what the middleware honours.
+func TestAsUserRoutesAreTheOnesHonoured(t *testing.T) {
+	if len(AsUserRoutes) != 5 {
+		t.Fatalf("AsUserRoutes: %v", AsUserRoutes)
+	}
+	for _, route := range AsUserRoutes {
+		method, path, _ := strings.Cut(route, " ")
+		r := httptest.NewRequest(method, strings.ReplaceAll(path, "{id}", "7"), nil)
+		if got := asUserPattern(r); got != route {
+			t.Errorf("%s: asUserPattern = %q", route, got)
+		}
+		if _, ok := RoutePerms[route]; !ok {
+			t.Errorf("%s is not a route the gate knows", route)
+		}
+	}
+	for _, miss := range []string{"POST /api/v1/asks/remove", "POST /api/v1/asks/7/approve", "GET /api/v1/asks/7/parts", "HEAD /api/v1/asks", "GET /api/v1/titles"} {
+		method, path, _ := strings.Cut(miss, " ")
+		if got := asUserPattern(httptest.NewRequest(method, path, nil)); got != "" {
+			t.Errorf("%s: asUserPattern = %q; want none", miss, got)
+		}
+	}
+}
+
 // A Jellyfin id matches its link whichever way either side spells it, and
 // a turned-off person is told apart from no link at all.
 func TestLinkedCaller(t *testing.T) {
@@ -129,7 +153,7 @@ func asUserFixture(t *testing.T) *fixture {
 	}
 	m := http.NewServeMux()
 	for _, p := range []string{"POST /api/v1/asks", "GET /api/v1/asks", "GET /api/v1/asks/limit", "GET /api/v1/asks/{id}", "DELETE /api/v1/asks/{id}",
-		"POST /api/v1/asks/remove", "POST /api/v1/asks/{id}/approve", "GET /api/v1/settings/asks", "GET /api/v1/titles"} {
+		"POST /api/v1/asks/remove", "POST /api/v1/asks/{id}/approve", "GET /api/v1/asks/{id}/parts", "GET /api/v1/settings/asks", "GET /api/v1/titles"} {
 		m.HandleFunc(p, echo)
 	}
 	a.Routes(m)
@@ -234,6 +258,32 @@ func TestAsUserHeader(t *testing.T) {
 		// No code: the refusal is the route gate's, about scope, not the header's.
 		if plain != http.StatusForbidden || with != plain || e.OnBehalf || e.Code != "" || !strings.Contains(e.Error, "scope") {
 			t.Fatalf("read key: %d without, %d with the header (%+v)", plain, with, e)
+		}
+	})
+	t.Run("a key without the route's scope learns nothing about links", func(t *testing.T) {
+		// Linked or not, the answer is the route gate's scope refusal.
+		for _, v := range []string{asAna, "jellyfin:" + jfNobody} {
+			if code, e := keyCall(t, f, readKey, "POST", "/api/v1/asks", v); code != 403 || e.Code != "" || !strings.Contains(e.Error, "scope") {
+				t.Errorf("%q: %d %+v", v, code, e)
+			}
+		}
+	})
+	t.Run("near misses of the request routes refuse it", func(t *testing.T) {
+		for _, r := range [][2]string{{"GET", "/api/v1/asks/7/parts"}, {"GET", "/api/v1/asks/"}, {"GET", "/api/v1/asks/7/"}, {"PUT", "/api/v1/asks/7"}, {"GET", "/api/v1/asks/limit/"}} {
+			if code, e := keyCall(t, f, ownKey, r[0], r[1], asAna); code != 400 || e.Code != "as_user_route" {
+				t.Errorf("%s %s: %d %+v", r[0], r[1], code, e)
+			}
+		}
+		// HEAD answers carry no body to read a code from.
+		if code, _ := keyCall(t, f, ownKey, "HEAD", "/api/v1/asks", asAna); code != 400 {
+			t.Errorf("HEAD /api/v1/asks: %d", code)
+		}
+	})
+	t.Run("a locked person is refused", func(t *testing.T) {
+		setUserState(t, f, anaID, "locked")
+		defer setUserState(t, f, anaID, "active")
+		if code, e := keyCall(t, f, ownKey, "POST", "/api/v1/asks", asAna); code != 403 || e.Code != "user_off" || e.UserID != 0 {
+			t.Fatalf("%d %+v", code, e)
 		}
 	})
 	t.Run("every request route takes it", func(t *testing.T) {

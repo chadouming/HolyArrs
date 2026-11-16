@@ -111,5 +111,40 @@ func TestAskAsLinkedUser(t *testing.T) {
 	keyCall("GET", "/api/v1/asks/"+itoa(own.ID), "", asAna, 404)
 	keyCall("DELETE", "/api/v1/asks/"+itoa(a.ID), "", asAna, 204)
 	r.owner.call("GET", "/api/v1/asks/"+itoa(a.ID), "", 404)
+
+	// last is the newest History entry of a kind whose summary starts with prefix.
+	last := func(kind, prefix string) domain.Event {
+		t.Helper()
+		es, _ := r.st.RecentEvents(ctx, 50)
+		for _, e := range es {
+			if e.Kind == kind && strings.HasPrefix(e.Summary, prefix) {
+				return e
+			}
+		}
+		t.Fatalf("no %s Event starting %q", kind, prefix)
+		return domain.Event{}
+	}
+	const mark = `(through the key "Jellyfin plugin")`
+	if e := last(domain.EventAskWithdrawn, "ana took back "); e.Data["via_key"] != "Jellyfin plugin" || !strings.HasSuffix(e.Summary, mark) {
+		t.Fatalf("take-back Event %q %v", e.Summary, e.Data)
+	}
+
+	// bo may auto-approve and approve: his ask through the key is approved at
+	// once, and a request he removes through the key says so too.
+	const jfBo = "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0"
+	if err := r.st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec("INSERT INTO user_links(user_id, provider, external_id, external_name, created_at) VALUES (?, 'jellyfin', ?, 'bo', '2026-01-01T00:00:00Z')", r.bo.id, jfBo)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r.owner.call("PUT", "/api/v1/users/"+itoa(r.bo.id), `{"perms":["ask","auto_approve","approve"]}`, 200)
+	if b := askOf(t, keyCall("POST", "/api/v1/asks", `{"id":"tmdb:900002"}`, "jellyfin:"+jfBo, 201)); b.AskedBy.ID != r.bo.id || b.State == "asked" {
+		t.Fatalf("bo's ask through the key: by %d, state %q; want bo, approved", b.AskedBy.ID, b.State)
+	}
+	keyCall("DELETE", "/api/v1/asks/"+itoa(own.ID), "", "jellyfin:"+jfBo, 204)
+	if e := last(domain.EventAskWithdrawn, "bo removed "); e.Data["via_key"] != "Jellyfin plugin" || !strings.HasSuffix(e.Summary, mark) {
+		t.Fatalf("remove Event %q %v", e.Summary, e.Data)
+	}
 	r.asks.Wait()
 }

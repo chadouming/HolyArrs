@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/webserver"
@@ -31,26 +32,39 @@ func parseAsUser(v string) (provider, extID string, ok bool) {
 	return p, id, true
 }
 
-// asUserRoute says whether a route honours AsUserHeader: making an ask,
+// AsUserRoutes are the routes that honour AsUserHeader: making an ask,
 // reading the weekly limit, listing asks, reading one and taking one back.
 // The list is short on purpose: a key that could act as someone else on
-// every route would be a way into settings and accounts.
-func asUserRoute(r *http.Request) bool {
+// every route would be a way into settings and accounts. The API file is
+// checked against it.
+var AsUserRoutes = []string{
+	"POST /api/v1/asks",
+	"GET /api/v1/asks",
+	"GET /api/v1/asks/limit",
+	"GET /api/v1/asks/{id}",
+	"DELETE /api/v1/asks/{id}",
+}
+
+// asUserPattern is the AsUserRoutes entry a request is for, or "" when its
+// route does not honour the header. It reads the path itself because the
+// sign-in middleware runs before the router has matched anything.
+func asUserPattern(r *http.Request) string {
 	rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/asks")
 	if !ok {
-		return false
+		return ""
 	}
-	switch rest {
-	case "":
-		return r.Method == http.MethodGet || r.Method == http.MethodPost
-	case "/limit":
-		return r.Method == http.MethodGet
+	path := "/api/v1/asks" + rest
+	if rest != "" && rest != "/limit" {
+		id, ok := strings.CutPrefix(rest, "/")
+		if !ok || id == "" || strings.Trim(id, "0123456789") != "" {
+			return ""
+		}
+		path = "/api/v1/asks/{id}"
 	}
-	id, ok := strings.CutPrefix(rest, "/")
-	if !ok || id == "" || strings.Trim(id, "0123456789") != "" {
-		return false
+	if route := r.Method + " " + path; slices.Contains(AsUserRoutes, route) {
+		return route
 	}
-	return r.Method == http.MethodGet || r.Method == http.MethodDelete
+	return ""
 }
 
 // outranks says whether key's maker may do everything who may: the owner
@@ -87,9 +101,16 @@ func (a *Auth) asUser(w http.ResponseWriter, r *http.Request, key webserver.Call
 	if v == "" {
 		return key, true
 	}
-	if !asUserRoute(r) {
+	route := asUserPattern(r)
+	if route == "" {
 		refuseAsUser(w, http.StatusBadRequest, "as_user_route", AsUserHeader+" is not accepted on this route")
 		return webserver.Caller{}, false
+	}
+	// A key whose scope does not cover the route goes on as itself, and the
+	// route gate refuses it as it would without the header. Looking the
+	// person up first would tell such a key which Jellyfin ids are linked.
+	if !key.HasScope(RouteScope(route)) {
+		return key, true
 	}
 	// A key frozen until its admin turns on two-factor sign-in stays frozen:
 	// the route gate would judge the named person and let it through.

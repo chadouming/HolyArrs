@@ -16,6 +16,12 @@ func TestPersonOfOnBehalf(t *testing.T) {
 	if p.UserID != 7 || p.Name != "ana" || p.ViaKey != "Jellyfin plugin" {
 		t.Fatalf("on behalf: %+v", p)
 	}
+	// The label lands in a History line, so characters that would break or
+	// hide part of that line are dropped.
+	who.KeyLabel = "Jelly\nfin​ ‮plugin\x00"
+	if p := PersonOf(r.WithContext(webserver.ContextWith(r.Context(), who)), nil, nil); p.ViaKey != "Jellyfin plugin" {
+		t.Fatalf("label %q", p.ViaKey)
+	}
 	who.OnBehalf = false
 	if p := PersonOf(r.WithContext(webserver.ContextWith(r.Context(), who)), nil, nil); p.ViaKey != "" {
 		t.Fatalf("own key: %+v", p)

@@ -8744,6 +8744,15 @@
               ],
               "type": "string"
             }
+          },
+          {
+            "description": "Only with an API key made by the owner or an admin: jellyfin:<Jellyfin user id> makes the call count as the HolyArrs person linked to that Jellyfin account, with their own permissions, weekly limit and age-rating limit. The key can only name a person who may do no more than its maker. Refusals carry a code: user_not_linked (404), user_off (403), user_link_unclear (409), as_user_above (403), as_user_key (403), as_user_value (400). Any other route answers 400 as_user_route.",
+            "in": "header",
+            "name": "X-HolyArrs-User",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -8787,6 +8796,17 @@
       "post": {
         "description": "A movie by tmdb: id, (kind show) a show by tmdb:, tvdb:, tvmaze: or imdb: id, whole or by seasons, or (kind artist) an artist by mbid: id, whole or by albums (MusicBrainz album ids). A second ask for the same thing joins the first (200, joined); a waiting show ask grows to the seasons asked for too; a show or artist in the Library is asked for only the seasons or albums it does not keep up to date yet; an album the artist's album kinds leave out is refused (409). Approving an artist ask adds the artist with only the asked-for albums kept up to date (their kinds included) and searches nothing yet. Approved straight away when the caller may auto-approve. Counts against the caller's weekly limit unless they may approve (show asks count when shows_count is on, artist asks when music_count is on). For a Kid (a member with an age-rating limit), a movie or show above their limit, or without a rating, answers 403 \"This account can ask only for titles rated up to <limit>.\", and every artist answers 403 \"This account cannot ask for music, because music has no age ratings.\"",
         "operationId": "makeAsk",
+        "parameters": [
+          {
+            "description": "Only with an API key made by the owner or an admin: jellyfin:<Jellyfin user id> makes the call count as the HolyArrs person linked to that Jellyfin account, with their own permissions, weekly limit and age-rating limit. The key can only name a person who may do no more than its maker. Refusals carry a code: user_not_linked (404), user_off (403), user_link_unclear (409), as_user_above (403), as_user_key (403), as_user_value (400). Any other route answers 400 as_user_route.",
+            "in": "header",
+            "name": "X-HolyArrs-User",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -8968,6 +8988,17 @@
       "get": {
         "description": "How many movies, shows and music asks the caller may still make in the rolling 7 days (one limit per kind), and when the next one of each frees up.",
         "operationId": "askLimit",
+        "parameters": [
+          {
+            "description": "Only with an API key made by the owner or an admin: jellyfin:<Jellyfin user id> makes the call count as the HolyArrs person linked to that Jellyfin account, with their own permissions, weekly limit and age-rating limit. The key can only name a person who may do no more than its maker. Refusals carry a code: user_not_linked (404), user_off (403), user_link_unclear (409), as_user_above (403), as_user_key (403), as_user_value (400). Any other route answers 400 as_user_route.",
+            "in": "header",
+            "name": "X-HolyArrs-User",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -9059,6 +9090,15 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "description": "Only with an API key made by the owner or an admin: jellyfin:<Jellyfin user id> makes the call count as the HolyArrs person linked to that Jellyfin account, with their own permissions, weekly limit and age-rating limit. The key can only name a person who may do no more than its maker. Refusals carry a code: user_not_linked (404), user_off (403), user_link_unclear (409), as_user_above (403), as_user_key (403), as_user_value (400). Any other route answers 400 as_user_route.",
+            "in": "header",
+            "name": "X-HolyArrs-User",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -9104,6 +9144,15 @@
             "required": true,
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "description": "Only with an API key made by the owner or an admin: jellyfin:<Jellyfin user id> makes the call count as the HolyArrs person linked to that Jellyfin account, with their own permissions, weekly limit and age-rating limit. The key can only name a person who may do no more than its maker. Refusals carry a code: user_not_linked (404), user_off (403), user_link_unclear (409), as_user_above (403), as_user_key (403), as_user_value (400). Any other route answers 400 as_user_route.",
+            "in": "header",
+            "name": "X-HolyArrs-User",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],

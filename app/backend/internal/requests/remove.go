@@ -54,8 +54,8 @@ func (s *Service) Remove(ctx context.Context, id int64, p Person) error {
 	if err != nil {
 		return err
 	}
-	s.event(ctx, &domain.Event{Actor: p.actor(), Kind: domain.EventAskWithdrawn, Summary: p.Name + " removed the request for " + label(a),
-		Data: map[string]any{"ask_id": a.ID}, GroupKey: groupKey(a.ID)})
+	s.event(ctx, p.viaKey(&domain.Event{Actor: p.actor(), Kind: domain.EventAskWithdrawn, Summary: p.Name + " removed the request for " + label(a),
+		Data: map[string]any{"ask_id": a.ID}, GroupKey: groupKey(a.ID)}))
 	if s.Live != nil {
 		s.Live.PublishApprovers("ask_removed", map[string]any{"id": id})
 		for _, u := range ids {
