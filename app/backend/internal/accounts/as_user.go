@@ -53,6 +53,24 @@ func asUserRoute(r *http.Request) bool {
 	return r.Method == http.MethodGet || r.Method == http.MethodDelete
 }
 
+// outranks says whether key's maker may do everything who may: the owner
+// always, and anyone else only for a person who is not the owner and holds
+// no permission the maker lacks.
+func outranks(key, who webserver.Caller) bool {
+	if key.Role == webserver.RoleOwner {
+		return true
+	}
+	if who.Role == webserver.RoleOwner {
+		return false
+	}
+	for _, p := range who.Perms {
+		if !key.Has(p) {
+			return false
+		}
+	}
+	return true
+}
+
 // refuseAsUser answers a refused AsUserHeader. code is stable, so the app
 // that sent the header can tell the refusals apart without reading words.
 func refuseAsUser(w http.ResponseWriter, status int, code, msg string) {
@@ -73,6 +91,12 @@ func (a *Auth) asUser(w http.ResponseWriter, r *http.Request, key webserver.Call
 		refuseAsUser(w, http.StatusBadRequest, "as_user_route", AsUserHeader+" is not accepted on this route")
 		return webserver.Caller{}, false
 	}
+	// A key frozen until its admin turns on two-factor sign-in stays frozen:
+	// the route gate would judge the named person and let it through.
+	if key.MustTwoFactor {
+		fail(w, http.StatusForbidden, "turn on two-factor sign-in in My account first")
+		return webserver.Caller{}, false
+	}
 	// Anyone else's key could spend another person's weekly limit.
 	if key.Role != webserver.RoleOwner && key.Role != webserver.RoleAdmin {
 		refuseAsUser(w, http.StatusForbidden, "as_user_key", "only a key made by the owner or an admin can ask for someone else")
@@ -89,6 +113,9 @@ func (a *Auth) asUser(w http.ResponseWriter, r *http.Request, key webserver.Call
 	case errors.Is(err, sql.ErrNoRows):
 		refuseAsUser(w, http.StatusNotFound, "user_not_linked", "this Jellyfin user is not linked to a HolyArrs person")
 		return webserver.Caller{}, false
+	case errors.Is(err, errLinkUnclear):
+		refuseAsUser(w, http.StatusConflict, "user_link_unclear", "this Jellyfin user is linked to more than one HolyArrs person")
+		return webserver.Caller{}, false
 	case err != nil:
 		log.Printf("auth: %s: %v", AsUserHeader, err)
 		fail(w, http.StatusInternalServerError, "could not look up the linked person")
@@ -98,6 +125,13 @@ func (a *Auth) asUser(w http.ResponseWriter, r *http.Request, key webserver.Call
 		return webserver.Caller{}, false
 	}
 	a.fill(&who, perms)
+	// A key acts only as people who may do no more than its maker. Else an
+	// admin's key naming the owner, or someone who approves when the admin
+	// does not, would ask, list and remove with rights the admin lacks.
+	if !outranks(key, who) {
+		refuseAsUser(w, http.StatusForbidden, "as_user_above", "this key cannot ask for a person who may do more than its maker")
+		return webserver.Caller{}, false
+	}
 	// The key still decides what may be called; only who it counts as changes.
 	who.Via, who.KeyID, who.KeyLabel, who.Scopes, who.OnBehalf = key.Via, key.KeyID, key.KeyLabel, key.Scopes, true
 	return who, true

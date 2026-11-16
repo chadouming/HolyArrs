@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
@@ -230,7 +231,8 @@ func TestAsUserHeader(t *testing.T) {
 	t.Run("the header adds no scope", func(t *testing.T) {
 		plain, _ := keyCall(t, f, readKey, "POST", "/api/v1/asks")
 		with, e := keyCall(t, f, readKey, "POST", "/api/v1/asks", asAna)
-		if plain != http.StatusForbidden || with != plain || e.OnBehalf {
+		// No code: the refusal is the route gate's, about scope, not the header's.
+		if plain != http.StatusForbidden || with != plain || e.OnBehalf || e.Code != "" || !strings.Contains(e.Error, "scope") {
 			t.Fatalf("read key: %d without, %d with the header (%+v)", plain, with, e)
 		}
 	})
@@ -277,8 +279,54 @@ func TestAsUserHeader(t *testing.T) {
 			t.Fatalf("%d %+v", code, e)
 		}
 	})
-	t.Run("an admin's key may name the owner", func(t *testing.T) {
-		if code, e := keyCall(t, f, boKey, "POST", "/api/v1/asks", "jellyfin:"+jfOwner); code != 200 || e.UserID != ownerID || !e.OnBehalf {
+	t.Run("an admin's key may name a person who may do no more than the admin", func(t *testing.T) {
+		if code, e := keyCall(t, f, boKey, "POST", "/api/v1/asks", asAna); code != 200 || e.UserID != anaID || !e.OnBehalf {
+			t.Fatalf("%d %+v", code, e)
+		}
+	})
+	t.Run("an admin's key cannot name the owner", func(t *testing.T) {
+		// Else the admin would ask, list and remove with the owner's rights.
+		for _, r := range [][2]string{{"POST", "/api/v1/asks"}, {"DELETE", "/api/v1/asks/7"}} {
+			if code, e := keyCall(t, f, boKey, r[0], r[1], "jellyfin:"+jfOwner); code != 403 || e.Code != "as_user_above" || e.UserID != 0 {
+				t.Errorf("%s %s: %d %+v", r[0], r[1], code, e)
+			}
+		}
+	})
+	t.Run("a key cannot name a person with a permission its maker lacks", func(t *testing.T) {
+		// cy may approve; dee, an admin who may not, cannot borrow that.
+		join(t, f, invite(t, f, own, `{"role":"member","perms":["ask","approve"]}`), "cy")
+		const jfCy = "00000000000000000000000000000c1c"
+		linkJellyfin(t, f, "cy", jfCy)
+		dee := join(t, f, invite(t, f, own, `{"role":"admin","perms":["ask","settings"]}`), "dee")
+		deeKey, _ := makeKey(t, f, dee, `{"label":"dee's"}`)
+		if code, e := keyCall(t, f, deeKey, "GET", "/api/v1/asks", "jellyfin:"+jfCy); code != 403 || e.Code != "as_user_above" {
+			t.Fatalf("%d %+v", code, e)
+		}
+		if code, e := keyCall(t, f, ownKey, "GET", "/api/v1/asks", "jellyfin:"+jfCy); code != 200 || e.Name != "cy" {
+			t.Fatalf("owner's key: %d %+v", code, e)
+		}
+	})
+	t.Run("a key frozen until two-factor is on stays frozen with the header", func(t *testing.T) {
+		f.a.requireAdmin2FA.Store(true)
+		defer f.a.requireAdmin2FA.Store(false)
+		plain, _ := keyCall(t, f, boKey, "GET", "/api/v1/asks")
+		with, e := keyCall(t, f, boKey, "GET", "/api/v1/asks", asAna)
+		if plain != 403 || with != 403 || e.UserID != 0 || !strings.Contains(e.Error, "two-factor") {
+			t.Fatalf("bo's key: %d without, %d with the header (%+v)", plain, with, e)
+		}
+	})
+	t.Run("one Jellyfin id linked to two people is refused", func(t *testing.T) {
+		// ana's link is stored with dashes; the same id without them, on someone
+		// else, is a second row the table allows. Neither person is picked.
+		join(t, f, invite(t, f, own, `{"role":"member"}`), "eve")
+		eveID := linkJellyfin(t, f, "eve", jfAna)
+		defer func() {
+			_ = f.s.WriteCore(context.Background(), func(tx *sql.Tx) error {
+				_, err := tx.Exec("DELETE FROM user_links WHERE user_id = ?", eveID)
+				return err
+			})
+		}()
+		if code, e := keyCall(t, f, ownKey, "POST", "/api/v1/asks", asAna); code != 409 || e.Code != "user_link_unclear" || e.UserID != 0 {
 			t.Fatalf("%d %+v", code, e)
 		}
 	})

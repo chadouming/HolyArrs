@@ -10,7 +10,8 @@ Without it, every request made with a key counts as the person who made the key.
 
 ## What you need
 
-- An API key made by the owner or an admin, with the write scope. Make one under **Settings > API > API keys**. See [The HolyArrs API](../dev/api.md).
+- An API key made by the owner or an admin, with the read and write scopes. Asking and taking back need write; reading the limit and the requests needs read. Make one under **Settings > API > API keys**. See [The HolyArrs API](../dev/api.md).
+- A key can only name people who may do no more than the person who made it. The owner's key can name anyone. An admin's key cannot name the owner, or a person who holds a permission the admin lacks.
 - Each person linked to their Jellyfin account. A person is linked once they sign in with Jellyfin, or after you import your Jellyfin server's people. See [Sign-in](../users/sign-in.md).
 
 ## Name the person
@@ -41,7 +42,7 @@ History shows the request under the person's name, with the label of the key it 
 | `GET /api/v1/asks/{id}` | Reads one of them |
 | `DELETE /api/v1/asks/{id}` | Takes back a request of theirs |
 
-Every other call refuses the header. Browser sessions ignore it.
+Every other HolyArrs API call made with a key refuses the header. Browser sessions, the AI address and the Sonarr and Radarr addresses ignore it.
 
 ## If a call is refused
 
@@ -53,7 +54,11 @@ Each refusal has a `code` an app can read.
 | 400 | `as_user_value` | The value is not `jellyfin:` and a Jellyfin user id | Check the id |
 | 403 | `as_user_key` | The key was not made by the owner or an admin | Make the key as the owner or an admin |
 | 404 | `user_not_linked` | No HolyArrs person is linked to that Jellyfin user | Have them sign in with Jellyfin, or import your Jellyfin people |
-| 403 | `user_off` | The linked person's account is turned off | Turn the account on under **Settings > Users and roles** |
+| 403 | `as_user_above` | The named person may do more than the key's maker | Use a key made by the owner |
+| 409 | `user_link_unclear` | Two HolyArrs people are linked to that Jellyfin user | Remove the wrong link under **Settings > Users and roles** |
+| 403 | `user_off` | The linked person's account is turned off or locked | Turn the account on under **Settings > Users and roles** |
+
+Two refusals come without a `code`, as they do without the header: a key whose scope does not cover the call, and a key or person who must turn on two-factor sign-in first.
 
 A refused call files nothing. It never counts as the key's owner instead.
 
