@@ -174,6 +174,9 @@ type Person struct {
 	// MaxRating is a Kid's age-rating limit ("" for none): they may ask
 	// only for movies and shows rated up to it, and never for music.
 	MaxRating string
+	// ViaKey is the label of the API key that asked for this person, or ""
+	// when they asked themselves.
+	ViaKey string
 }
 
 // ErrAboveLimit is behind every ask refused for the asker's age-rating
@@ -212,6 +215,17 @@ func libraryOverLimit(ctx context.Context, db database.Querier, p Person, kind s
 }
 
 func (p Person) actor() domain.Actor { return domain.Actor{Kind: "user", ID: p.UserID} }
+
+// viaKey marks an ask Event made through someone else's API key, so History
+// tells an ask an app filed for this person from one they made themselves.
+func (p Person) viaKey(e *domain.Event) *domain.Event {
+	if p.ViaKey == "" {
+		return e
+	}
+	e.Summary += ` (through the key "` + p.ViaKey + `")`
+	e.Data["via_key"] = p.ViaKey
+	return e
+}
 
 // Result is what asking did.
 type Result struct {
@@ -538,8 +552,8 @@ func (s *Service) ask(ctx context.Context, p Person, tmdbID string, q QualityLin
 		}
 		return Result{}, err
 	}
-	s.event(ctx, &domain.Event{Actor: p.actor(), Kind: domain.EventAskMade, Summary: p.Name + " asked for " + label(a),
-		Data: map[string]any{"ask_id": a.ID, "tmdb_id": tmdbID, "asked_by": p.Name}, GroupKey: groupKey(a.ID)})
+	s.event(ctx, p.viaKey(&domain.Event{Actor: p.actor(), Kind: domain.EventAskMade, Summary: p.Name + " asked for " + label(a),
+		Data: map[string]any{"ask_id": a.ID, "tmdb_id": tmdbID, "asked_by": p.Name}, GroupKey: groupKey(a.ID)}))
 	if p.autoApproves(fourK) {
 		if got, _, err := s.decide(ctx, a.ID, p, ApproveOptions{}, true); err == nil {
 			return Result{Ask: got}, nil
@@ -572,8 +586,8 @@ func (s *Service) join(ctx context.Context, p Person, id int64) (Result, error) 
 	if err != nil {
 		return Result{}, err
 	}
-	s.event(ctx, &domain.Event{Actor: p.actor(), Kind: domain.EventAskJoined, TitleID: a.TitleID, Summary: p.Name + " also asked for " + label(a),
-		Data: map[string]any{"ask_id": a.ID, "asked_by": p.Name}, GroupKey: groupKey(a.ID)})
+	s.event(ctx, p.viaKey(&domain.Event{Actor: p.actor(), Kind: domain.EventAskJoined, TitleID: a.TitleID, Summary: p.Name + " also asked for " + label(a),
+		Data: map[string]any{"ask_id": a.ID, "asked_by": p.Name}, GroupKey: groupKey(a.ID)}))
 	if a.State == domain.AskAsked && p.autoApproves(a.FourK) {
 		if got, _, err := s.decide(ctx, a.ID, p, ApproveOptions{}, true); err == nil {
 			a = got

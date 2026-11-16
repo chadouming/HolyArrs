@@ -19,6 +19,9 @@ func PersonOf(r *http.Request, kidMax func(*http.Request) string, ownerName func
 		return Person{UserID: 1, Name: name, AutoApprove: true, AutoApproveFourK: true, NoLimit: true}
 	}
 	p := Person{UserID: who.UserID, Name: who.Name, AutoApprove: who.Has(webserver.PermAutoApprove), AutoApproveFourK: who.Has(webserver.PermAutoApproveFourK), NoLimit: who.Has(webserver.PermApprove)}
+	if who.OnBehalf {
+		p.ViaKey = who.KeyLabel
+	}
 	if kidMax != nil {
 		p.MaxRating = kidMax(r)
 	}
