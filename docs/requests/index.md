@@ -28,6 +28,7 @@ Open **Requests** in the menu (`http://your-server:6262/requests`).
 - [Approve or decline](approving.md)
 - [Weekly limits and Request rules](settings.md)
 - [Report a problem](reports.md)
+- [Ask for someone through the API](asking-for-someone.md)
 
 ## Building
 

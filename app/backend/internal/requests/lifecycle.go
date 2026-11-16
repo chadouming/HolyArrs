@@ -153,8 +153,8 @@ func (s *Service) Withdraw(ctx context.Context, id int64, p Person, staff bool) 
 	if err != nil {
 		return err
 	}
-	s.event(ctx, &domain.Event{Actor: p.actor(), Kind: domain.EventAskWithdrawn, Summary: p.Name + " took back the ask for " + label(a),
-		Data: map[string]any{"ask_id": a.ID}, GroupKey: groupKey(a.ID)})
+	s.event(ctx, p.viaKey(&domain.Event{Actor: p.actor(), Kind: domain.EventAskWithdrawn, Summary: p.Name + " took back the ask for " + label(a),
+		Data: map[string]any{"ask_id": a.ID}, GroupKey: groupKey(a.ID)}))
 	if s.Live != nil {
 		s.Live.PublishApprovers("ask_removed", map[string]any{"id": id})
 		// The people who asked see it go from their own open pages too:
