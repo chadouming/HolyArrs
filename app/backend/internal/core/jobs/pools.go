@@ -15,13 +15,19 @@ const (
 	// PoolTranslate runs subtitle translations, which can take minutes, so
 	// searches, grabs and imports never wait behind one.
 	PoolTranslate Pool = "translate"
+	// PoolTranscribe makes subtitles from audio, one File at a time: it
+	// takes minutes and a graphics card, so nothing else waits behind it.
+	PoolTranscribe Pool = "transcribe"
+	// PoolModels fetches model files, which can take an hour: in a pool of
+	// its own it holds up neither translations nor searches and grabs.
+	PoolModels Pool = "models"
 )
 
 // DefaultPools are the worker counts the app starts with.
-var DefaultPools = map[Pool]int{PoolCore: 1, PoolIO: 2, PoolHeavy: 1, PoolMigrate: 1, PoolTranslate: 1}
+var DefaultPools = map[Pool]int{PoolCore: 1, PoolIO: 2, PoolHeavy: 1, PoolMigrate: 1, PoolTranslate: 1, PoolTranscribe: 1, PoolModels: 1}
 
 // AllPools lists every pool in start order.
-var AllPools = []Pool{PoolCore, PoolIO, PoolHeavy, PoolMigrate, PoolTranslate}
+var AllPools = []Pool{PoolCore, PoolIO, PoolHeavy, PoolMigrate, PoolTranslate, PoolTranscribe, PoolModels}
 
 // kindPools assigns every Job kind to a pool. A kind not listed runs in
 // the I/O pool; a test in cmd/holyarrs fails for a registered kind that
@@ -32,25 +38,27 @@ var kindPools = map[string]Pool{
 	"check_library_folders": PoolCore,
 	"clean_history":         PoolCore,
 	// outside input and output
-	"search_slot":          PoolIO,
-	"search_season":        PoolIO,
-	"search_album":         PoolIO,
-	"search_missing":       PoolIO,
-	"feed_check":           PoolIO,
-	"grab_held":            PoolIO,
-	"grab":                 PoolIO,
-	"subtitle_search":      PoolIO,
-	"subtitle_missing":     PoolIO,
-	"subtitle_better":      PoolIO,
-	"subtitle_translate":   PoolTranslate,
-	"sync_outside_lists":   PoolIO,
-	"sync_plex_watchlists": PoolIO,
-	"check_bridges":        PoolIO,
-	"refresh_title":        PoolIO,
-	"refresh_titles":       PoolIO,
-	"refresh_shows":        PoolIO,
-	"refresh_artists":      PoolIO,
-	"artist_pictures":      PoolIO,
+	"search_slot":             PoolIO,
+	"search_season":           PoolIO,
+	"search_album":            PoolIO,
+	"search_missing":          PoolIO,
+	"feed_check":              PoolIO,
+	"grab_held":               PoolIO,
+	"grab":                    PoolIO,
+	"subtitle_search":         PoolIO,
+	"subtitle_missing":        PoolIO,
+	"subtitle_better":         PoolIO,
+	"subtitle_translate":      PoolTranslate,
+	"subtitle_transcribe":     PoolTranscribe,
+	"subtitle_model_download": PoolModels,
+	"sync_outside_lists":      PoolIO,
+	"sync_plex_watchlists":    PoolIO,
+	"check_bridges":           PoolIO,
+	"refresh_title":           PoolIO,
+	"refresh_titles":          PoolIO,
+	"refresh_shows":           PoolIO,
+	"refresh_artists":         PoolIO,
+	"artist_pictures":         PoolIO,
 	// heavy disk work
 	"import_download":     PoolHeavy,
 	"scan_title":          PoolHeavy,

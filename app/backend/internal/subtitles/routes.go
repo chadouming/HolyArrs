@@ -37,11 +37,20 @@ func (a *Handlers) Routes(m *http.ServeMux) {
 	m.HandleFunc("PUT /api/v1/settings/subtitles", a.putSubtitleSettings)
 	m.HandleFunc("GET /api/v1/titles/{id}/subtitles", a.titleSubtitles)
 	m.HandleFunc("PUT /api/v1/titles/{id}/subtitle-wish", a.putSubtitleWish)
+	m.HandleFunc("GET /api/v1/titles/{id}/subtitle-terms", a.getTerms)
+	m.HandleFunc("PUT /api/v1/titles/{id}/subtitle-terms", a.putTerms)
 	m.HandleFunc("GET /api/v1/settings/subtitles/translator", a.getTranslator)
 	m.HandleFunc("PUT /api/v1/settings/subtitles/translator", a.putTranslator)
 	m.HandleFunc("POST /api/v1/settings/subtitles/translator/test", a.testTranslator)
+	m.HandleFunc("GET /api/v1/settings/subtitles/translator/models", a.listModels)
+	m.HandleFunc("POST /api/v1/settings/subtitles/translator/models/{id}/download", a.downloadModel)
+	m.HandleFunc("DELETE /api/v1/settings/subtitles/translator/models/{id}/download", a.cancelModelDownload)
+	m.HandleFunc("DELETE /api/v1/settings/subtitles/translator/models/{id}", a.deleteModel)
 	m.HandleFunc("POST /api/v1/files/{id}/subtitles/translate", a.translateSubtitle)
+	m.HandleFunc("POST /api/v1/files/{id}/subtitles/transcribe", a.transcribeSubtitle)
+	m.HandleFunc("GET /api/v1/settings/subtitles/transcriber", a.getTranscriber)
 	m.HandleFunc("POST /api/v1/subtitles/search", a.searchSubtitles)
+	m.HandleFunc("GET /api/v1/subtitles/overview", a.subtitlesOverview)
 	m.HandleFunc("GET /api/v1/subtitles/missing", a.missingSubtitles)
 	m.HandleFunc("POST /api/v1/subtitles/missing/search", a.searchMissingSubtitles)
 	m.HandleFunc("POST /api/v1/files/{id}/subtitles/choices", a.subtitleChoices)
@@ -257,9 +266,11 @@ func (a *Handlers) missingSubtitles(w http.ResponseWriter, r *http.Request) {
 		}
 		titleID = id
 	}
+	// A need that is not known narrows nothing.
+	need := q.Get("need")
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	ctx, db := r.Context(), a.store.Read()
-	rows, total, err := MissingList(ctx, db, MissingFilter{Language: lang, Kind: kind, TitleID: titleID}, limitOf(r, 100), max(offset, 0))
+	rows, total, err := MissingList(ctx, db, MissingFilter{Language: lang, Kind: kind, TitleID: titleID, Need: need}, limitOf(r, 100), max(offset, 0))
 	if err != nil {
 		webserver.Internal(w, "api", err)
 		return

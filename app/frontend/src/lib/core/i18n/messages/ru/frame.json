@@ -103,5 +103,6 @@
 	"frame.feeds.clearNow": "Убрать сейчас",
 	"frame.feeds.cleared": "Убрано из загрузчика",
 	"frame.feeds.clearStill": "Пока не убрано",
-	"frame.error.pageGone": "Такой страницы нет. Возможно, ссылка устарела или набрана с ошибкой."
+	"frame.error.pageGone": "Такой страницы нет. Возможно, ссылка устарела или набрана с ошибкой.",
+	"frame.nav.subtitles": "Субтитры"
 }

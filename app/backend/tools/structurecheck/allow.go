@@ -150,6 +150,7 @@ var tableOwner = map[string]string{
 	"subtitle_sites":       "subtitles",
 	"subtitle_turned_down": "subtitles",
 	"subtitle_wishes":      "subtitles",
+	"subtitle_transcripts": "subtitles",
 
 	// mediaservers
 	"media_servers": "mediaservers",

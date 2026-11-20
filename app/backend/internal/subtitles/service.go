@@ -18,6 +18,7 @@ import (
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
 	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
+	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate/builtin"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/secrets"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/container"
@@ -51,11 +52,20 @@ type Service struct {
 	HTTP *http.Client
 	// TranslateHTTP replaces the translator's HTTP client. Only tests set it.
 	TranslateHTTP *http.Client
+	// ModelsDir holds the model files of the built-in translator.
+	ModelsDir string
+	// Runners run the built-in translator's model, one on each graphics card
+	// in use. Nil when there is none.
+	Runners *builtin.Pool
 	// Enqueue adds a Job to the jobs queue. When nil, nothing runs later.
 	Enqueue func(ctx context.Context, kind string, subj *domain.Subject, params map[string]any, key string) error
 
-	mu      sync.Mutex
-	clients map[int64]cached
+	mu        sync.Mutex
+	clients   map[int64]cached
+	downloads map[string]*download // model downloads queued or running, by model id
+	gathered  map[string]keptTerms // a title's gathered terms, by title and language
+	devices   []builtin.Device     // the graphics cards last listed
+	devicesAt time.Time
 }
 
 func (s *Service) event(ctx context.Context, e *domain.Event) {
@@ -92,6 +102,10 @@ type Subtitle struct {
 	// MadeTranslatedPartial for HolyArrs's own translation, or a site's
 	// sites.AITranslated or sites.MachineTranslated. Nil means a person.
 	Made *string `db:"made" json:"made,omitempty"`
+	// Transcribed marks a subtitle HolyArrs made from the video's audio. Such
+	// a row also has Made set, so it gives way to a person's subtitle like
+	// any other machine-made one.
+	Transcribed bool `db:"transcribed" json:"transcribed,omitempty"`
 	// Picture marks a built-in track stored as pictures, which cannot be
 	// translated. It is worked out from the codec, never stored.
 	Picture bool `json:"picture,omitempty"`

@@ -142,7 +142,8 @@ func (s *Service) Search(ctx context.Context, fileID int64, opt SearchOptions, b
 			if !sc.translator.Ready() {
 				sc.translator = s.Translator(ctx)
 			}
-			if sc.translator.Ready() {
+			// With any language there is no one language to ask the sites for.
+			if sc.translator.Ready() && t.want.TranslateFrom != FromAny {
 				ask(t.want.TranslateFrom) // a source to translate from, in the same call
 			}
 		}
@@ -233,6 +234,16 @@ func (s *Service) Search(ctx context.Context, fileID int64, opt SearchOptions, b
 		}
 		s.afterTarget(ctx, fc, t, &out, set, by)
 		res.Outcomes = append(res.Outcomes, out)
+	}
+	// A machine-made subtitle no want asked about (a transcript in a language
+	// nobody wants) was looked past too: without this its File would be due
+	// for the weekly look on every run.
+	if opt.Better {
+		if rows, err := stopgapRows(ctx, s.Store.Read(), fileID); err == nil {
+			for _, r := range rows {
+				s.touchStopgap(ctx, r.ID)
+			}
+		}
 	}
 	return res, nil
 }

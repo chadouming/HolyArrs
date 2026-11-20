@@ -8,5 +8,6 @@
   "forced": false,
   "hearing_impaired": false,
   "state": "none_good_enough",
-  "tries": 0
+  "tries": 0,
+  "has_text": false
 }

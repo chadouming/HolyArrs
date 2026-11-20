@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -12,12 +14,14 @@ import (
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
 	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate"
+	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate/builtin"
 )
 
 // Kinds of translator.
 const (
 	TranslatorOpenAI  = "openai"  // any server with the OpenAI chat API: cloud services, Ollama, LM Studio
 	TranslatorLingarr = "lingarr" // a Lingarr server
+	TranslatorBuiltIn = "builtin" // a model run inside HolyArrs's own container
 )
 
 // The settings rows of the translator. The key lives in the vault; its row
@@ -29,6 +33,9 @@ const (
 	trModel    = "subtitle_translator_model"
 	trKey      = "subtitle_translator_key"
 	trBuiltIn  = "subtitle_translate_built_in"
+	trOwnModel = "subtitle_translator_builtin_model"
+	trThreads  = "subtitle_translator_threads"
+	trGPU      = "subtitle_translator_gpu"
 	trMaxModel = 200
 	trMaxKey   = 1000
 )
@@ -44,6 +51,18 @@ type Translator struct {
 	// BuiltInAuto lets the timed search translate text tracks inside the video
 	// without asking. Off, they are translated only by hand.
 	BuiltInAuto bool `json:"built_in_auto"`
+	// BuiltInModel is the model the built-in translator loads: a model id.
+	BuiltInModel string `json:"builtin_model"`
+	// Threads is how many CPU threads the built-in translator uses; 0 for the default.
+	Threads int `json:"threads"`
+	// GPU is the graphics card the built-in translator runs on, as the
+	// runner names it ("Vulkan0"); empty for the CPU.
+	GPU string `json:"gpu"`
+	// BuiltInAvailable reports that this image holds the model runner.
+	BuiltInAvailable bool `json:"builtin_available"`
+
+	builtInName  string // the chosen model's name, when its file is there
+	builtInReady bool
 }
 
 // Ready reports whether the translator can be called.
@@ -53,6 +72,8 @@ func (t Translator) Ready() bool {
 		return t.URL != "" && t.Model != ""
 	case TranslatorLingarr:
 		return t.URL != ""
+	case TranslatorBuiltIn:
+		return t.builtInReady
 	}
 	return false
 }
@@ -60,8 +81,11 @@ func (t Translator) Ready() bool {
 // Name is how saved subtitles and Events name the translator: the model, or
 // Lingarr.
 func (t Translator) Name() string {
-	if t.Kind == TranslatorLingarr {
+	switch t.Kind {
+	case TranslatorLingarr:
 		return "Lingarr"
+	case TranslatorBuiltIn:
+		return t.builtInName
 	}
 	return t.Model
 }
@@ -75,12 +99,17 @@ type TranslatorInput struct {
 	Key         string `json:"key"`
 	ClearKey    bool   `json:"clear_key"`
 	BuiltInAuto bool   `json:"built_in_auto"`
+	// BuiltInModel and Threads belong to the built-in kind.
+	BuiltInModel string `json:"builtin_model"`
+	Threads      int    `json:"threads"`
+	GPU          string `json:"gpu"`
 }
 
 // Errors from the translator settings.
 var (
 	ErrNoTranslator = errors.New("no translator is set up: add one in Settings > Subtitles")
 	ErrKeyElsewhere = errors.New("the translator address moved to another host: give the key again or clear it")
+	ErrNoRunner     = errors.New("the built-in translator needs the HolyArrs image that holds the model runner")
 )
 
 // readTranslator reads the translator settings, without looking in the
@@ -88,8 +117,17 @@ var (
 func readTranslator(ctx context.Context, db *sql.DB) Translator {
 	get := func(k string) string { return database.SettingOr(ctx, db, trGroup, k, "") }
 	t := Translator{Kind: get(trKind), URL: get(trURL), Model: get(trModel)}
-	if t.Kind != TranslatorOpenAI && t.Kind != TranslatorLingarr {
+	if t.Kind != TranslatorOpenAI && t.Kind != TranslatorLingarr && t.Kind != TranslatorBuiltIn {
 		t.Kind = ""
+	}
+	if t.BuiltInModel = get(trOwnModel); !validModelID(t.BuiltInModel) {
+		t.BuiltInModel = ""
+	}
+	if t.GPU = get(trGPU); t.GPU != GPUAll && !builtin.DeviceID(t.GPU) {
+		t.GPU = ""
+	}
+	if t.Threads, _ = strconv.Atoi(get(trThreads)); t.Threads < 0 || t.Threads > runtime.NumCPU() {
+		t.Threads = 0
 	}
 	if translate.CheckAddress(t.URL) != nil {
 		t.URL = ""
@@ -98,9 +136,24 @@ func readTranslator(ctx context.Context, db *sql.DB) Translator {
 	return t
 }
 
+// builtIn fills in what the built-in kind needs to know about this machine:
+// whether the runner is in this image and whether the chosen model is there.
+func (s *Service) builtIn(t *Translator) (modelFile, error) {
+	if s.Runners != nil {
+		_, t.BuiltInAvailable = builtin.Find()
+	}
+	m, err := s.modelFor(t.BuiltInModel)
+	if err == nil {
+		t.builtInName = m.Name
+	}
+	t.builtInReady = t.BuiltInAvailable && err == nil
+	return m, err
+}
+
 // Translator reads the translator settings and whether a key is kept.
 func (s *Service) Translator(ctx context.Context) Translator {
 	t := readTranslator(ctx, s.Store.Read())
+	_, _ = s.builtIn(&t)
 	key, err := s.translatorKey(ctx)
 	t.HasKey = err == nil && key != ""
 	return t
@@ -110,11 +163,27 @@ func (s *Service) Translator(ctx context.Context) Translator {
 func (in *TranslatorInput) check() error {
 	in.Kind, in.URL, in.Model, in.Key = strings.TrimSpace(in.Kind), strings.TrimSpace(in.URL), strings.TrimSpace(in.Model), strings.TrimSpace(in.Key)
 	switch in.Kind {
-	case "", TranslatorOpenAI, TranslatorLingarr:
+	case "", TranslatorOpenAI, TranslatorLingarr, TranslatorBuiltIn:
 	default:
-		return fmt.Errorf("kind must be %s, %s or empty for off", TranslatorOpenAI, TranslatorLingarr)
+		return fmt.Errorf("kind must be %s, %s, %s or empty for off", TranslatorOpenAI, TranslatorLingarr, TranslatorBuiltIn)
 	}
-	if in.Kind != "" && in.URL == "" {
+	in.BuiltInModel = strings.TrimSpace(in.BuiltInModel)
+	if in.BuiltInModel != "" && !validModelID(in.BuiltInModel) {
+		return errors.New("the built-in translator does not know that model")
+	}
+	if m, ok := builtin.ByID(in.BuiltInModel); ok && m.Kind != "" {
+		return errors.New("that model is not a translation model")
+	}
+	if in.Kind == TranslatorBuiltIn && in.BuiltInModel == "" {
+		return errors.New("the built-in translator needs a model")
+	}
+	if in.GPU = strings.TrimSpace(in.GPU); in.GPU != "" && in.GPU != GPUAll && !builtin.DeviceID(in.GPU) {
+		return errors.New("the built-in translator does not know that graphics card")
+	}
+	if in.Threads < 0 || in.Threads > runtime.NumCPU() {
+		return fmt.Errorf("threads must be between 0 (the default) and %d", runtime.NumCPU())
+	}
+	if in.Kind != "" && in.Kind != TranslatorBuiltIn && in.URL == "" {
 		return errors.New("the translator needs its address")
 	}
 	if in.URL != "" {
@@ -142,6 +211,11 @@ func (s *Service) SaveTranslator(ctx context.Context, in TranslatorInput, by dom
 		return Translator{}, err
 	}
 	cur := s.Translator(ctx)
+	if in.Kind == TranslatorBuiltIn {
+		// The built-in kind has no address, model name or key of its own:
+		// those of the other kinds stay as they are for a switch back.
+		in.URL, in.Model, in.Key, in.ClearKey = cur.URL, cur.Model, "", false
+	}
 	if in.URL == "" && in.Key == "" && cur.HasKey {
 		in.ClearKey = true // with no address left, a kept key has nowhere to go
 	}
@@ -153,7 +227,8 @@ func (s *Service) SaveTranslator(ctx context.Context, in TranslatorInput, by dom
 	}
 	err := s.Store.Write(ctx, func(tx *sql.Tx) error {
 		ts := time.Now()
-		for k, v := range map[string]string{trKind: in.Kind, trURL: in.URL, trModel: in.Model, trBuiltIn: strconv.FormatBool(in.BuiltInAuto)} {
+		for k, v := range map[string]string{trKind: in.Kind, trURL: in.URL, trModel: in.Model, trBuiltIn: strconv.FormatBool(in.BuiltInAuto),
+			trOwnModel: in.BuiltInModel, trThreads: strconv.Itoa(in.Threads), trGPU: in.GPU} {
 			if err := database.PutSetting(tx, trGroup, k, v, by, ts); err != nil {
 				return err
 			}
@@ -183,6 +258,46 @@ func (s *Service) translatorKey(ctx context.Context) (string, error) {
 // translatorClient builds the client for the stored translator.
 func (s *Service) translatorClient(ctx context.Context) (translate.Client, Translator, error) {
 	t := readTranslator(ctx, s.Store.Read())
+	if t.Kind == TranslatorBuiltIn {
+		m, err := s.builtIn(&t)
+		switch {
+		case !t.BuiltInAvailable:
+			return nil, t, ErrNoRunner
+		case err != nil:
+			return nil, t, err
+		}
+		bin, _ := builtin.Find()
+		threads := t.Threads
+		if threads == 0 {
+			threads = builtin.DefaultThreads()
+		}
+		cpu := builtin.Options{Binary: bin, ModelPath: m.Path, Threads: threads, Context: builtin.DefaultContext, NeedBytes: m.NeedBytes,
+			NoThink: m.Form == builtin.FormNoThink}
+		// The cards in use: the one named, or with "all" every card the
+		// runner lists; none of them leaves the model on the CPU.
+		var cards []string
+		switch {
+		case t.GPU == GPUAll:
+			for _, d := range s.Devices(ctx) {
+				cards = append(cards, d.ID)
+			}
+		case t.GPU != "":
+			cards = []string{t.GPU}
+		}
+		c := &builtin.Client{Name: m.Name, Form: m.Form, HTTP: s.TranslateHTTP}
+		for _, id := range cards {
+			// On a graphics card the model sits in the card's memory and the
+			// runner takes several calls at once, each with a context of its own.
+			o := cpu
+			o.GPU, o.NeedBytes, o.CacheDir = id, min(o.NeedBytes, gpuNeed), filepath.Join(s.ModelsDir, ".cache")
+			o.Parallel, o.Context = builtin.GPUParallel, builtin.GPUContext
+			c.Targets = append(c.Targets, builtin.Target{Runner: s.Runners.Runner(id), Opts: o})
+		}
+		if len(c.Targets) == 0 {
+			c.Targets = []builtin.Target{{Runner: s.Runners.Runner(""), Opts: cpu}}
+		}
+		return c, t, nil
+	}
 	if !t.Ready() {
 		return nil, t, ErrNoTranslator
 	}
@@ -194,6 +309,63 @@ func (s *Service) translatorClient(ctx context.Context) (translate.Client, Trans
 		return &translate.Lingarr{URL: t.URL, Key: key, HTTP: s.TranslateHTTP}, t, nil
 	}
 	return &translate.OpenAI{URL: t.URL, Key: key, Model: t.Model, HTTP: s.TranslateHTTP}, t, nil
+}
+
+// GPUAll is the graphics card setting that uses every card the runner lists,
+// one runner on each.
+const GPUAll = "all"
+
+// slotsOf is how many calls c takes at once: several for the built-in kind on
+// graphics cards, one for every other translator.
+func slotsOf(c translate.Client) int {
+	if b, ok := c.(*builtin.Client); ok {
+		return b.Slots()
+	}
+	return 1
+}
+
+// gpuNeed is the least free memory asked for with the model on a graphics
+// card. The runner was seen to hold more than this at its peak, but how much
+// of that the card's driver maps differs from card to card, so the check
+// only refuses a machine that is nearly out of memory.
+const gpuNeed = 1 << 30
+
+// devicesFor is how long a list of graphics cards is kept.
+const devicesFor = time.Minute
+
+// Devices lists the graphics cards the runner in this image can use; none
+// when there is no runner or the container was given no card.
+func (s *Service) Devices(ctx context.Context) []builtin.Device {
+	if s.Runners == nil {
+		return []builtin.Device{}
+	}
+	bin, ok := builtin.Find()
+	if !ok {
+		return []builtin.Device{}
+	}
+	s.mu.Lock()
+	if s.devices != nil && time.Since(s.devicesAt) < devicesFor {
+		d := s.devices
+		s.mu.Unlock()
+		return d
+	}
+	s.mu.Unlock()
+	d, err := builtin.Devices(ctx, bin)
+	if err != nil || d == nil {
+		d = []builtin.Device{}
+	}
+	s.mu.Lock()
+	s.devices, s.devicesAt = d, time.Now()
+	s.mu.Unlock()
+	return d
+}
+
+// chunkFor is how many lines the first calls to tr carry; 0 for the default.
+func chunkFor(tr Translator) int {
+	if tr.Kind == TranslatorBuiltIn {
+		return builtin.Chunk
+	}
+	return 0
 }
 
 // TranslatorTest is how a translator test went, in plain words.

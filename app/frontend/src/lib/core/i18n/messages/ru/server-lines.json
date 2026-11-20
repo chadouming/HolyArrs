@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Сериалы в тренде на стримингах",
 	"server.suggest.trending-on-streaming": "В тренде на стримингах",
 	"server.discover.popular": "Популярные",
-	"server.metadata.creator": "Создатель"
+	"server.metadata.creator": "Создатель",
+	"server.subtitles.could-not-make-a-subtitle-from": "Не удалось создать субтитры по звуку: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Субтитры на языке {lang} созданы по звуку ({cues} строк)"
 }

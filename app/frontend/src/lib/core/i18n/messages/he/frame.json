@@ -103,5 +103,6 @@
 	"frame.feeds.clearNow": "ניקוי עכשיו",
 	"frame.feeds.cleared": "נוקתה מהמוריד",
 	"frame.feeds.clearStill": "עדיין לא נוקתה",
-	"frame.error.pageGone": "הדף הזה לא קיים. ייתכן שהקישור ישן או שגוי."
+	"frame.error.pageGone": "הדף הזה לא קיים. ייתכן שהקישור ישן או שגוי.",
+	"frame.nav.subtitles": "כתוביות"
 }

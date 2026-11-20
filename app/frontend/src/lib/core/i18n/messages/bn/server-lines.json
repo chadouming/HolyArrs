@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "স্ট্রিমিংয়ে ট্রেন্ডিং শো",
 	"server.suggest.trending-on-streaming": "স্ট্রিমিংয়ে ট্রেন্ডিং",
 	"server.discover.popular": "জনপ্রিয়",
-	"server.metadata.creator": "নির্মাতা"
+	"server.metadata.creator": "নির্মাতা",
+	"server.subtitles.could-not-make-a-subtitle-from": "অডিও থেকে সাবটাইটেল তৈরি করা যায়নি: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "অডিও থেকে {lang} সাবটাইটেল তৈরি হয়েছে ({cues} লাইন)"
 }

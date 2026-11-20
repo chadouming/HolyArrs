@@ -36,6 +36,7 @@
 					<label for="{id}-tr-{i}">{t('subtitles.wants.translateFrom')}</label>
 					<select id="{id}-tr-{i}" class="input" bind:value={() => w.translate_from ?? '', (v) => (w.translate_from = v || undefined)} data-testid="wish-translate-from">
 						<option value="">{t('subtitles.wants.noTranslate')}</option>
+						<option value="any">{t('subtitles.wants.anyLanguage')}</option>
 						{#each langs.filter((l) => l.code !== w.language) as l (l.code)}<option value={l.code}>{l.name}</option>{/each}
 					</select>
 				</div>

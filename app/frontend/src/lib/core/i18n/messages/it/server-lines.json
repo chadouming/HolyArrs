@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Serie di tendenza in streaming",
 	"server.suggest.trending-on-streaming": "Di tendenza in streaming",
 	"server.discover.popular": "Popolari",
-	"server.metadata.creator": "Ideatore"
+	"server.metadata.creator": "Ideatore",
+	"server.subtitles.could-not-make-a-subtitle-from": "Impossibile creare un sottotitolo dall'audio: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Sottotitolo in {lang} creato dall'audio ({cues} righe)"
 }

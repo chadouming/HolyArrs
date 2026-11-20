@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Trendande serier på streaming",
 	"server.suggest.trending-on-streaming": "Trendar på streaming",
 	"server.discover.popular": "Populärt",
-	"server.metadata.creator": "Skapare"
+	"server.metadata.creator": "Skapare",
+	"server.subtitles.could-not-make-a-subtitle-from": "Det gick inte att göra en undertext från ljudet: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Gjorde undertexten på {lang} från ljudet ({cues} rader)"
 }

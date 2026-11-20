@@ -158,6 +158,52 @@ test('Missing subtitles: every movie missing Spanish, by show too, and Search al
 	}).toPass({ timeout: 30_000 });
 });
 
+test('Subtitles page: what is missing and why, the sites, the jobs, and the list narrowed by what each file needs', async () => {
+	await page.goto('/');
+	await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Subtitles' }).click();
+	await expect(page).toHaveURL(/\/subtitles$/);
+	await expect(page.getByRole('heading', { level: 1, name: /Subtitles/ })).toBeVisible();
+	const tiles = page.getByTestId('subtitles-tiles');
+	await expect(tiles).toBeVisible();
+	// The lab's videos are not real: nothing can be read from them, so every missing subtitle needs speech to text.
+	const missing = Number((await page.getByTestId('tile-missing').locator('.n').textContent())?.replace(/\D/g, ''));
+	expect(missing).toBeGreaterThan(0);
+	await expect(page.getByTestId('tile-speech').locator('.n')).not.toHaveText('0');
+	await expect(page.getByTestId('tile-translate').locator('.n')).toHaveText('0');
+	// This build has no speech program, and the tile says so.
+	await expect(page.getByTestId('tile-speech')).toContainText('no speech program');
+	await expect(page.getByTestId('subtitles-site').first()).toBeVisible();
+	// Search all, in the test before this one, saved the movie's Spanish subtitle from the lab site: it is listed as done.
+	const done = page.getByTestId('subtitles-done');
+	await expect(done.getByRole('heading', { name: 'Done' })).toBeVisible();
+	await expect(done.getByTestId('subtitles-done-row').filter({ hasText: 'Quill Atlas' }).first()).toHaveAttribute('data-how', 'downloaded');
+	await expect(done.getByTestId('subtitles-done-count').first()).toContainText(/Downloaded \d+/);
+	const rows = page.getByTestId('subtitles-missing-row');
+	await expect(rows.first()).toBeVisible();
+	await expect(rows.first().getByTestId('subtitles-step')).toHaveAttribute('data-step', 'speechOff');
+	await expect(page.getByTestId('subtitles-transcribe')).toHaveCount(0);
+	// Narrowed to files that have another language: none here.
+	await page.getByTestId('tile-translate').click();
+	await expect(rows).toHaveCount(0);
+	await expect(page.getByText('Nothing matches')).toBeVisible();
+	await page.getByTestId('tile-speech').click();
+	await expect(rows.first()).toBeVisible();
+	await page.getByTestId('tile-missing').click();
+	await page.waitForLoadState('networkidle');
+	await noSidewaysScroll(page);
+	await axe(page, 'subtitles page');
+	if (process.env.HOLYARRS_E2E_SHOTS) {
+		mkdirSync(process.env.HOLYARRS_E2E_SHOTS, { recursive: true });
+		await page.screenshot({ path: join(process.env.HOLYARRS_E2E_SHOTS, 'subtitles-light.png'), fullPage: true });
+		await page.screenshot({ path: join(process.env.HOLYARRS_E2E_SHOTS, 'subtitles-view.png') });
+		await page.emulateMedia({ colorScheme: 'dark' });
+		await page.screenshot({ path: join(process.env.HOLYARRS_E2E_SHOTS, 'subtitles-dark.png'), fullPage: true });
+		await page.emulateMedia({ colorScheme: null });
+	}
+	// Nothing is searched here: the tests after this one count what is missing.
+	await expect(rows.first().getByTestId('subtitles-search')).toBeEnabled();
+});
+
 test('Movie page: its own languages, every result with score and reasons, Choose a subtitle, Sync fix, Turn down, History', async () => {
 	await page.goto('/library');
 	await page.getByRole('link', { name: /Quill Atlas/ }).first().click();
@@ -255,7 +301,7 @@ test('Show page: one episode gets its own subtitle languages in its sheet', asyn
 test('the subtitle screens fit a phone and pass the accessibility scan', async ({ browser }) => {
 	const ph = await fresh(browser, 390);
 	await signIn(ph, owner());
-	for (const url of ['/settings/subtitles', '/library/missing-subtitles']) {
+	for (const url of ['/settings/subtitles', '/library/missing-subtitles', '/subtitles']) {
 		await ph.goto(url);
 		await expect(ph.getByRole('heading', { level: 1 })).toBeVisible();
 		await ph.waitForLoadState('networkidle');
@@ -328,14 +374,14 @@ test('members see none of it', async ({ browser }) => {
 	await uma.getByRole('link', { name: /Quill Atlas/ }).first().click();
 	await expect(uma.getByRole('heading', { level: 1 })).toContainText('Quill Atlas');
 	await expect(uma.getByTestId('subtitles')).toHaveCount(0);
-	for (const url of ['/library/missing-subtitles']) {
+	for (const url of ['/library/missing-subtitles', '/subtitles']) {
 		await uma.goto(url);
 		await expect(uma).not.toHaveURL(new RegExp(url.replace(/\//g, '\\/') + '$'));
 	}
 	// A Settings page they may not open shows a note in place of the page.
 	await uma.goto('/settings/subtitles');
 	await expect(uma.getByRole('heading', { name: "You can't change this" })).toBeVisible();
-	for (const path of ['/api/v1/subtitles/missing', '/api/v1/subtitle-sites', '/api/v1/settings/subtitles']) {
+	for (const path of ['/api/v1/subtitles/missing', '/api/v1/subtitles/overview', '/api/v1/subtitle-sites', '/api/v1/settings/subtitles']) {
 		expect((await uma.request.get(path)).status(), path).toBe(403);
 	}
 	await uma.context().close();

@@ -101,7 +101,9 @@ export function buildNav(input: NavInput): NavSection[] {
 			items: input.allowed('manage') || input.allowed('staff')
 				? [
 						{ href: '/downloads', label: t('frame.nav.downloads'), icon: 'download', need: 'manage_library', also: ['/downloads/decide'], ...downloadsBadge(input) },
-						{ href: '/downloads/history', label: t('frame.nav.history'), icon: 'clock', need: 'manage_library' }
+						{ href: '/downloads/history', label: t('frame.nav.history'), icon: 'clock', need: 'manage_library' },
+						// Subtitles: what is missing, what can make it, and the jobs at work on it.
+						{ href: '/subtitles', label: t('frame.nav.subtitles'), icon: 'subtitle', need: 'manage_library' }
 					]
 				: []
 		},

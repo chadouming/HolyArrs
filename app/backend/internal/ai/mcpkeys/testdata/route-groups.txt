@@ -27,6 +27,8 @@ DELETE /api/v1/own-traits/{id} delete
 DELETE /api/v1/pick-rules/{id} delete
 DELETE /api/v1/plugins/{id} admin
 DELETE /api/v1/settings/old-app-api/keys/{side} admin
+DELETE /api/v1/settings/subtitles/translator/models/{id} delete
+DELETE /api/v1/settings/subtitles/translator/models/{id}/download delete
 DELETE /api/v1/sources/{id} delete
 DELETE /api/v1/subtitle-sites/{id} delete
 DELETE /api/v1/titles/{id}/follow delete
@@ -223,7 +225,9 @@ GET /api/v1/settings/shows settings
 GET /api/v1/settings/side-files settings
 GET /api/v1/settings/status settings
 GET /api/v1/settings/subtitles settings
+GET /api/v1/settings/subtitles/transcriber settings
 GET /api/v1/settings/subtitles/translator settings
+GET /api/v1/settings/subtitles/translator/models settings
 GET /api/v1/settings/title-defaults settings
 GET /api/v1/settings/trakt-key settings
 GET /api/v1/settings/trakt-token settings
@@ -238,6 +242,7 @@ GET /api/v1/subtitle-sites see
 GET /api/v1/subtitle-sites/kinds see
 GET /api/v1/subtitles/languages see
 GET /api/v1/subtitles/missing see
+GET /api/v1/subtitles/overview see
 GET /api/v1/support/bundle admin
 GET /api/v1/tags see
 GET /api/v1/titles see
@@ -255,6 +260,7 @@ GET /api/v1/titles/{id}/releases see
 GET /api/v1/titles/{id}/rename see
 GET /api/v1/titles/{id}/search-outcome see
 GET /api/v1/titles/{id}/seasons see
+GET /api/v1/titles/{id}/subtitle-terms see
 GET /api/v1/titles/{id}/subtitles see
 GET /api/v1/trailer/batch see
 GET /api/v1/trailer/stream/{id}/manifest.m3u8 see
@@ -420,6 +426,7 @@ POST /api/v1/explore/counts see
 POST /api/v1/explore/strip/counts see
 POST /api/v1/files/{id}/subtitles/choices add
 POST /api/v1/files/{id}/subtitles/choose add
+POST /api/v1/files/{id}/subtitles/transcribe add
 POST /api/v1/files/{id}/subtitles/translate add
 POST /api/v1/health/checks/run settings
 POST /api/v1/hidden add
@@ -476,6 +483,7 @@ POST /api/v1/settings/metadata/test settings
 POST /api/v1/settings/naming/example see
 POST /api/v1/settings/old-app-api/keys/{side} admin
 POST /api/v1/settings/plex-labels/run settings
+POST /api/v1/settings/subtitles/translator/models/{id}/download settings
 POST /api/v1/settings/subtitles/translator/test settings
 POST /api/v1/shows add
 POST /api/v1/sources settings
@@ -594,6 +602,7 @@ PUT /api/v1/titles/{id}/files/{fid}/choices add
 PUT /api/v1/titles/{id}/follow add
 PUT /api/v1/titles/{id}/leftovers/{fid} add
 PUT /api/v1/titles/{id}/seasons/{number} add
+PUT /api/v1/titles/{id}/subtitle-terms add
 PUT /api/v1/titles/{id}/subtitle-wish add
 PUT /api/v1/titles/{id}/versions/{vid} add
 PUT /api/v1/users/{id} admin

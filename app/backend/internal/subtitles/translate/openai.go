@@ -18,6 +18,12 @@ type OpenAI struct {
 	URL, Key, Model string
 	HTTP            *http.Client
 	Timeout         time.Duration // per call; three minutes when 0
+	// Ask replaces the instruction for a model that wants to be asked its
+	// own way: it gets the batch and the numbered lines as JSON, and gives
+	// the system and user messages; an empty system message is left out.
+	Ask func(b Batch, lines string) (system, user string)
+	// Sampling adds or replaces fields of the call, such as top_k.
+	Sampling map[string]any
 }
 
 // base returns the API base. A bare host such as http://ollama:11434 gets /v1.
@@ -82,13 +88,25 @@ func (o *OpenAI) Translate(ctx context.Context, b Batch) ([]Line, error) {
 	// The answer budget: the text again with room for a longer language and
 	// the JSON around each line.
 	budget := min(max(chars+24*len(b.Lines)+256, 512), 16000)
-	body, _ := json.Marshal(map[string]any{
+	msgs := []chatMessage{{"system", prompt(b)}, {"user", string(user)}}
+	if o.Ask != nil {
+		sys, usr := o.Ask(b, string(user))
+		msgs = []chatMessage{{"user", usr}}
+		if sys != "" {
+			msgs = []chatMessage{{"system", sys}, {"user", usr}}
+		}
+	}
+	call := map[string]any{
 		"model":       o.Model,
-		"messages":    []chatMessage{{"system", prompt(b)}, {"user", string(user)}},
+		"messages":    msgs,
 		"temperature": 0.2,
 		"max_tokens":  budget,
 		"stream":      false,
-	})
+	}
+	for k, v := range o.Sampling {
+		call[k] = v
+	}
+	body, _ := json.Marshal(call)
 	out, err := send(ctx, o.HTTP, http.MethodPost, o.base()+"/chat/completions", o.headers(), body, o.Timeout, o.Key)
 	if err != nil {
 		return nil, err

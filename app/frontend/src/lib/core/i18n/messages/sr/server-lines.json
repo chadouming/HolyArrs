@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Серије у тренду на стримингу",
 	"server.suggest.trending-on-streaming": "У тренду на стримингу",
 	"server.discover.popular": "Популарно",
-	"server.metadata.creator": "Аутор"
+	"server.metadata.creator": "Аутор",
+	"server.subtitles.could-not-make-a-subtitle-from": "Није могуће направити титл из звука: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Титл на језику {lang} направљен је из звука ({cues} редова)"
 }

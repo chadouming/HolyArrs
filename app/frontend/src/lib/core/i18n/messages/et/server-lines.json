@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Menukad sarjad voogedastuses",
 	"server.suggest.trending-on-streaming": "Menukas voogedastuses",
 	"server.discover.popular": "Populaarsed",
-	"server.metadata.creator": "Looja"
+	"server.metadata.creator": "Looja",
+	"server.subtitles.could-not-make-a-subtitle-from": "Helist ei õnnestunud subtiitrit teha: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Helist tehti {lang} subtiiter ({cues} rida)"
 }

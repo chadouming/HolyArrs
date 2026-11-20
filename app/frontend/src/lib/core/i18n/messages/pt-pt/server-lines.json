@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Séries em alta no streaming",
 	"server.suggest.trending-on-streaming": "Em alta no streaming",
 	"server.discover.popular": "Popular",
-	"server.metadata.creator": "Criador"
+	"server.metadata.creator": "Criador",
+	"server.subtitles.could-not-make-a-subtitle-from": "Não foi possível criar uma legenda a partir do áudio: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Legenda em {lang} criada a partir do áudio ({cues} linhas)"
 }

@@ -264,6 +264,8 @@ budget
 built
 built_at
 built_in_auto
+builtin_available
+builtin_model
 bulk_search_respects_gate
 by
 by_hand
@@ -286,6 +288,7 @@ can_act
 can_import
 can_read
 can_run
+can_translate
 candidate
 candidates
 cap
@@ -474,7 +477,9 @@ dl_speed
 dlspeed
 docker
 docker_value
+done
 done_at
+done_counts
 down
 download
 downloadClient
@@ -631,6 +636,7 @@ first_air_date
 first_release_date
 first_tried_at
 first_year
+fits
 fix
 fixed
 flags
@@ -663,6 +669,7 @@ four_k_library_folder_id
 four_k_pick_rules_id
 fps
 free_bytes
+free_mb
 free_space
 free_space_on_disk
 fresh
@@ -688,6 +695,7 @@ gate_opened_slots
 gate_opens_at
 gate_reason
 gate_skipped
+gathered
 generated_at
 genre
 genre_ids
@@ -701,6 +709,7 @@ good_enough_changes
 good_enough_from
 good_enough_points
 good_enough_to
+gpu
 grab_spacing_seconds
 grabs
 grabs_per_window
@@ -720,6 +729,7 @@ has_file
 has_key
 has_more
 has_other_announce_error
+has_text
 has_tracker_error
 has_tracker_warning
 hash
@@ -982,6 +992,7 @@ media_type
 mediatype
 member
 members
+memory_mb
 message
 messages
 metadata
@@ -1083,6 +1094,8 @@ naming_sets
 naming_values
 native
 nb_fan
+need
+need_speech
 needed
 needs
 needs_account
@@ -1157,6 +1170,7 @@ off_reason
 official
 offset
 offset_ms
+offsets
 ok
 old_episodes
 old_path
@@ -1198,6 +1212,7 @@ outside_lists
 outside_order
 outside_recent
 overview
+own
 own_keys_note
 own_only
 owned
@@ -1678,6 +1693,9 @@ special
 specials_folder
 specifications
 specs
+speech
+speech_held
+speech_reason
 speed
 speed_limit
 speedlimit_abs
@@ -1760,6 +1778,7 @@ text
 theaters
 theirs
 thetvdb
+threads
 thumb
 ticket
 tier
@@ -1804,6 +1823,7 @@ to_version
 token
 token_endpoint
 token_endpoint_auth_method
+tokens
 took
 top
 topic
@@ -1853,9 +1873,15 @@ trait
 trait_id
 traits
 trakt
+transcribe_missing
+transcribed
+transcriber
+transcription
 translate_from
 translated
 translations
+translator_name
+translator_ready
 transmission
 trash_description
 trash_id

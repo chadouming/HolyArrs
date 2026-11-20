@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "스트리밍 인기 TV 시리즈",
 	"server.suggest.trending-on-streaming": "스트리밍 인기 급상승",
 	"server.discover.popular": "인기순",
-	"server.metadata.creator": "제작자"
+	"server.metadata.creator": "제작자",
+	"server.subtitles.could-not-make-a-subtitle-from": "오디오에서 자막을 만들 수 없습니다: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "오디오에서 {lang} 자막을 만들었습니다 ({cues}줄)"
 }

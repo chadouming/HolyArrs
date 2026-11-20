@@ -29,6 +29,8 @@ export interface SubtitleSettings {
 	better_days: number;
 	batch: number;
 	adaptive: boolean;
+	// Make a subtitle from the audio when a file has no text subtitle and a search saved none.
+	transcribe_missing?: boolean;
 	sync_from_fps: number;
 	sync_to_fps: number;
 	sync_step_ms: number;
@@ -98,17 +100,75 @@ export interface SubtitleRow {
 	sync: Record<string, unknown>;
 	// What made it when a person did not: a translation, whole or partial, or a site's machine-made file.
 	made?: 'translated' | 'translated_partial' | 'ai_translated' | 'machine_translated';
+	// Made from the video's audio by the transcriber. Such a row also has `made` set, so it gives way to a person's subtitle.
+	transcribed?: boolean;
 	// A built-in track stored as pictures, which cannot be translated.
 	picture?: boolean;
 	track_index?: number;
 }
 
 export interface Translator {
-	kind: '' | 'openai' | 'lingarr';
+	kind: '' | 'openai' | 'lingarr' | 'builtin';
 	url: string;
 	model: string;
 	has_key: boolean;
 	built_in_auto: boolean;
+	// The built-in kind: the model it loads, its CPU threads (0 for the default), its graphics card ('' for the CPU), and whether this image holds the model runner.
+	builtin_model?: string;
+	threads?: number;
+	gpu?: string;
+	builtin_available?: boolean;
+}
+
+// One model of the built-in translator, as the server lists it.
+export interface ModelView {
+	id: string;
+	name: string;
+	size: number;
+	need: number;
+	license: string;
+	own: boolean;
+	state: 'present' | 'downloading' | 'missing';
+	progress: number;
+	fits: boolean;
+	chosen: boolean;
+	// '' for a translation model; 'speech' and 'vad' are the transcriber's two models.
+	kind?: '' | 'speech' | 'vad';
+}
+
+// A graphics card the model runner can use.
+export interface ModelDevice {
+	id: string;
+	name: string;
+	memory_mb: number;
+	free_mb: number;
+}
+
+export interface ModelList {
+	models: ModelView[];
+	devices: ModelDevice[];
+	total_memory: number;
+	threads_max: number;
+	threads_default: number;
+}
+
+// What a model's row offers: fetch it, stop fetching it, choose it, or nothing because it is the chosen one.
+export function modelAction(m: ModelView): 'download' | 'cancel' | 'use' | 'inUse' {
+	if (m.state === 'downloading') return 'cancel';
+	if (m.state !== 'present') return 'download';
+	return m.chosen ? 'inUse' : 'use';
+}
+
+// A file or memory size in plain words: GB with one decimal, MB below one GB.
+export function sizeWords(bytes: number): string {
+	const gb = bytes / 2 ** 30;
+	return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.round(bytes / 2 ** 20)} MB`;
+}
+
+// Whether the saved translator can be called: the built-in kind needs the runner and its model's file, the others an address.
+export function translatorReady(saved: Pick<Translator, 'kind' | 'url' | 'builtin_model' | 'builtin_available'>, models: ModelView[]): boolean {
+	if (saved.kind === 'builtin') return !!saved.builtin_available && models.some((m) => m.id === saved.builtin_model && m.state === 'present');
+	return saved.kind !== '' && !!saved.url;
 }
 
 export interface TranslatorForm extends Translator {
@@ -440,9 +500,58 @@ export function jobsDone(ids: number[], states: Record<number, string>): number 
 	return ids.filter((id) => ['done', 'failed', 'cancelled'].includes(states[id] ?? '')).length;
 }
 
+// Whether subtitles can be made from audio here: the programs are in this image, and the speech and voice-detection models are downloaded.
+export interface Transcriber {
+	available: boolean;
+	ready: boolean;
+	model: string;
+}
+
+// A title's names and terms for the transcriber: the owner's own, those gathered from the title's subtitles, and gathered ones the owner took out.
+export interface TitleTerms {
+	own: string[];
+	gathered: string[];
+	removed: string[];
+}
+
+export type Made = NonNullable<SubtitleRow['made']> | 'transcribed';
+
+// What made a subtitle when no person did: a transcript says so, whatever else its row holds.
+export function madeOf(s: Pick<SubtitleRow, 'made' | 'transcribed'>): Made | undefined {
+	return s.transcribed ? 'transcribed' : s.made;
+}
+
+// Make from audio is offered for a file with no text subtitle left, when the transcriber is ready. Picture tracks are not text.
+export function canTranscribe(rows: SubtitleRow[], tr: Transcriber | null): boolean {
+	if (!tr?.ready) return false;
+	return !rows.some((r) => r.state === 'present' && (r.place === 'beside' || (r.place === 'built_in' && !r.picture)));
+}
+
+// The terms box as the list to save: one term a line, trimmed, no empty line, no term twice whatever its capitals, 200 at most.
+export function termsBody(language: string, ownText: string, removed: string[]): { language: string; own: string[]; removed: string[] } {
+	const seen = new Set<string>();
+	const own: string[] = [];
+	for (const line of ownText.split('\n')) {
+		const term = line.trim();
+		const key = term.toLowerCase();
+		if (!term || seen.has(key) || own.length >= 200) continue;
+		seen.add(key);
+		own.push(term);
+	}
+	return { language, own, removed };
+}
+
+// Whether the saved translator can be asked to translate: the built-in kind needs the runner and a model, the others an address.
+export function translatorCanTranslate(x: Translator): boolean {
+	if (x.kind === 'builtin') return !!x.builtin_available && !!x.builtin_model;
+	return !!x.kind && !!x.url;
+}
+
 // What made a subtitle when no person did, or '' for a person's file.
-export function madeLabel(made: SubtitleRow['made']): string {
+export function madeLabel(made: Made | undefined): string {
 	switch (made) {
+		case 'transcribed':
+			return t('subtitles.made.transcribed');
 		case 'translated':
 			return t('subtitles.made.translated');
 		case 'translated_partial':
@@ -478,6 +587,11 @@ export function translateBody(m: Pick<SubtitleRow, 'language' | 'forced'>, src: 
 
 // Only the fields the translator keeps; a typed key is sent, an empty one keeps the stored key.
 export function translatorBody(f: TranslatorForm): Record<string, unknown> {
+	if (f.kind === 'builtin') {
+		// The other kinds' address, model and key stay on the server as they are.
+		const threads = Number.isInteger(f.threads) && (f.threads as number) > 0 ? (f.threads as number) : 0;
+		return { kind: f.kind, built_in_auto: f.built_in_auto, builtin_model: f.builtin_model ?? '', threads, gpu: f.gpu ?? '' };
+	}
 	const b: Record<string, unknown> = { kind: f.kind, url: f.url.trim(), model: f.kind === 'openai' ? f.model.trim() : '', built_in_auto: f.built_in_auto };
 	if (f.key.trim()) b.key = f.key.trim();
 	else if (f.clear_key) b.clear_key = true;

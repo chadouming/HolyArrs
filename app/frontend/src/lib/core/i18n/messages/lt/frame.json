@@ -103,5 +103,6 @@
 	"frame.feeds.clearNow": "Išvalyti dabar",
 	"frame.feeds.cleared": "Išvalyta iš Atsisiuntėjo",
 	"frame.feeds.clearStill": "Dar neišvalyta",
-	"frame.error.pageGone": "Šio puslapio nėra. Nuoroda gali būti sena arba neteisingai įvesta."
+	"frame.error.pageGone": "Šio puslapio nėra. Nuoroda gali būti sena arba neteisingai įvesta.",
+	"frame.nav.subtitles": "Subtitrai"
 }

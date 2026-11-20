@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Trending shows on streaming",
 	"server.suggest.trending-shows-this-week": "Trending shows this week",
 	"server.suggest.trending-this-week-everywhere": "Trending this week everywhere",
-	"server.suggest.what-people-watch-this-week": "What people watch this week"
+	"server.suggest.what-people-watch-this-week": "What people watch this week",
+	"server.subtitles.could-not-make-a-subtitle-from": "Could not make a subtitle from the audio: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Made the {lang} subtitle from the audio ({cues} lines)"
 }

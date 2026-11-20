@@ -80,6 +80,10 @@ const (
 type Job struct {
 	Batch
 	Chunk int // lines per call at first; DefaultChunk when 0
+	// Progress, when set, is told how many more lines are settled after each
+	// call: translated, or given up on. A run in parts calls it from several
+	// goroutines at once.
+	Progress func(lines int)
 }
 
 // Result is what a run made. Lines holds one text per input line: the
@@ -172,6 +176,7 @@ func Run(ctx context.Context, c Client, j Job) (Result, error) {
 			byN[j.Lines[i].N] = k
 		}
 		filled := make([]bool, len(chunk))
+		before := res.Translated
 		for _, l := range got {
 			k, ok := byN[l.N]
 			if !ok {
@@ -186,6 +191,9 @@ func Run(ctx context.Context, c Client, j Job) (Result, error) {
 			i := chunk[k]
 			res.Lines[i], res.Done[i] = text, true
 			res.Translated++
+		}
+		if j.Progress != nil && res.Translated > before {
+			j.Progress(res.Translated - before)
 		}
 		var missing []int
 		for k, ok := range filled {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/jobs"
@@ -110,7 +111,7 @@ func (s *Service) handleTranslate(ctx context.Context, r *jobs.Run) error {
 		return &translateFailed{why: "the translation request cannot be read"}
 	}
 	fileID, by := r.Job.Subject.ID, jobActor(r)
-	res, err := s.Translate(ctx, fileID, req, by)
+	res, err := s.Translate(jobProgress(ctx, r), fileID, req, by)
 	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrNotMain) || errors.Is(err, ErrMusic) {
 		r.SetResult(map[string]any{"skipped": err.Error()})
 		return nil
@@ -184,7 +185,7 @@ func (s *Service) Translate(ctx context.Context, fileID int64, req TranslateRequ
 		return res, err
 	}
 	for _, w := range st.Wish.Wants {
-		if req.From == "" && w.Language == req.Language && w.Forced == req.Forced {
+		if req.From == "" && w.Language == req.Language && w.Forced == req.Forced && w.TranslateFrom != FromAny {
 			req.From = w.TranslateFrom
 		}
 	}
@@ -213,11 +214,16 @@ func (s *Service) Translate(ctx context.Context, fileID int64, req TranslateRequ
 		return res, err
 	}
 	job := translate.Job{Batch: translate.Batch{From: src.language, To: req.Language, FromName: LanguageName(src.language), ToName: LanguageName(req.Language),
-		Title: fc.title.Name, Kind: fc.item.Kind, MediaID: fc.title.ID}}
+		Title: fc.title.Name, Kind: fc.item.Kind, MediaID: fc.title.ID}, Chunk: chunkFor(tr)}
 	for i, c := range cues {
 		job.Lines = append(job.Lines, translate.Line{N: i + 1, Text: c.Text})
 	}
-	out, terr := translate.Run(ctx, client, job)
+	// A translator that takes several calls at once gets the file in that many parts.
+	var settled atomic.Int64
+	job.Progress = func(n int) {
+		tellProgress(ctx, float64(settled.Add(int64(n)))/float64(max(len(job.Lines), 1)))
+	}
+	out, terr := translate.RunParts(ctx, client, job, slotsOf(client))
 	if ctx.Err() != nil {
 		return res, ctx.Err()
 	}
@@ -341,7 +347,9 @@ func (s *Service) findSource(ctx context.Context, fc *fileCtx, st Status, req Tr
 		}
 		switch h.Place {
 		case "beside":
-			if textFormat(h.Path) != "" && stopgapAt(stops, h.Path) == nil {
+			// A machine-made file is never a source, except a transcript: it
+			// holds what was said, which is what a translation needs.
+			if row := stopgapAt(stops, h.Path); textFormat(h.Path) != "" && (row == nil || row.Transcribed) {
 				return source{kind: SourceBeside, language: h.Language, hi: h.HearingImpaired, path: h.Path}, nil
 			}
 		case "built_in":

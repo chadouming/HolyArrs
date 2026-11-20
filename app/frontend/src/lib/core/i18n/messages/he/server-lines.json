@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "סדרות בטרנד בסטרימינג",
 	"server.suggest.trending-on-streaming": "בטרנד בסטרימינג",
 	"server.discover.popular": "פופולרי",
-	"server.metadata.creator": "יוצר"
+	"server.metadata.creator": "יוצר",
+	"server.subtitles.could-not-make-a-subtitle-from": "לא ניתן היה ליצור כתובית מהשמע: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "נוצרה כתובית ב{lang} מהשמע ({cues} שורות)"
 }

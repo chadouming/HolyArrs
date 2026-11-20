@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "ஸ்ட்ரீமிங்கில் டிரெண்டிங் தொடர்கள்",
 	"server.suggest.trending-on-streaming": "ஸ்ட்ரீமிங்கில் டிரெண்டிங்",
 	"server.discover.popular": "பிரபலமானவை",
-	"server.metadata.creator": "படைப்பாளர்"
+	"server.metadata.creator": "படைப்பாளர்",
+	"server.subtitles.could-not-make-a-subtitle-from": "ஒலியிலிருந்து வசனத்தை உருவாக்க முடியவில்லை: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "ஒலியிலிருந்து {lang} வசனம் உருவாக்கப்பட்டது ({cues} வரிகள்)"
 }

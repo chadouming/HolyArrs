@@ -12,7 +12,7 @@
 	import TestTag from '#lib/ui/TestTag.svelte';
 	import Icon from '#lib/ui/Icon.svelte';
 	import EmptyState from '#lib/ui/EmptyState.svelte';
-	import { LanguageWants as WishEditor, accountMissing, accountWords, kindCovers, siteBody, siteForm, siteState, translatorBody, wishProblem, type Language, type Translator, type TranslatorForm, type SiteForm, type SiteKind, type SiteView, type SubtitleSettings } from '#lib/subtitles/index.ts';
+	import { BuiltInModels, LanguageWants as WishEditor, accountMissing, accountWords, kindCovers, siteBody, siteForm, siteState, translatorBody, translatorReady, wishProblem, type ModelView, type Transcriber, type Language, type Translator, type TranslatorForm, type SiteForm, type SiteKind, type SiteView, type SubtitleSettings } from '#lib/subtitles/index.ts';
 	import { onMount } from 'svelte';
 	import { testCount } from '#lib/core/test-tag.ts';
 	import { api } from '#lib/core/api.ts';
@@ -40,7 +40,13 @@
 	let trTesting = $state(false);
 	let trError = $state('');
 	let trResult = $state<{ ok: boolean; message: string; models: string[] } | null>(null);
-	const trReady = $derived(!!tr && JSON.parse(trSaved || '{}').kind !== '' && !!JSON.parse(trSaved || '{}').url);
+	// The built-in translator's models, kept in step by its own part of the card.
+	let trModels = $state<ModelView[]>([]);
+	// Whether subtitles can be made from audio here: the programs in this image, and its two models.
+	let transcriber = $state<Transcriber | null>(null);
+	let sttModels = $state<ModelView[]>([]);
+	const sttReady = $derived(sttModels.filter((m) => (m.kind === 'speech' || m.kind === 'vad') && m.state === 'present').length >= 2);
+	const trReady = $derived(!!tr && translatorReady(JSON.parse(trSaved || '{"kind":"","url":""}'), trModels));
 
 	function setTranslator(x: Translator) {
 		tr = { ...x, key: '', clear_key: false };
@@ -103,6 +109,7 @@
 			}),
 			api.get<{ languages: Language[] }>('/subtitles/languages').then((r) => (langs = r.languages)),
 			api.get<Translator>('/settings/subtitles/translator').then(setTranslator),
+			api.get<Transcriber>('/settings/subtitles/transcriber').then((x) => (transcriber = x), () => {}),
 			api.get<{ kinds: SiteKind[] }>('/subtitle-sites/kinds').then((r) => (kinds = r.kinds)),
 			loadSites()
 		])
@@ -268,14 +275,22 @@
 	{#if tr}
 		<form class="sc-form" onsubmit={saveTranslator} aria-label={t('settings.subtitles.translate')}>
 			<SettingsCard id="translator-card" title={t('settings.subtitles.translate')} description={t('settings.subtitles.translateDesc')}>
-				<Field id="tr-kind" label={t('settings.subtitles.translator')} hint={tr.kind === 'openai' ? t('settings.subtitles.trOpenAIHint') : tr.kind === 'lingarr' ? t('settings.subtitles.trLingarrHint') : ''}>
+				<Field id="tr-kind" label={t('settings.subtitles.translator')} hint={tr.kind === 'openai' ? t('settings.subtitles.trOpenAIHint') : tr.kind === 'lingarr' ? t('settings.subtitles.trLingarrHint') : tr.kind === 'builtin' ? t('settings.subtitles.trBuiltInKindHint') : !tr.builtin_available ? t('settings.subtitles.trNoRunner') : ''}>
 					<select id="tr-kind" class="input" bind:value={tr.kind} data-testid="translator-kind">
 						<option value="">{t('settings.subtitles.trOff')}</option>
 						<option value="openai">{t('settings.subtitles.trOpenAI')}</option>
 						<option value="lingarr">Lingarr</option>
+						<option value="builtin" disabled={!tr.builtin_available && tr.kind !== 'builtin'}>{t('settings.subtitles.trBuiltInKind')}</option>
 					</select>
 				</Field>
-				{#if tr.kind}
+				{#if tr.kind === 'builtin'}
+					{#if !tr.builtin_available}<p class="form-error" role="alert">{t('settings.subtitles.trNoRunner')}</p>{/if}
+					<BuiltInModels bind:tr bind:models={trModels} />
+					<label class="checkline">
+						<input type="checkbox" bind:checked={tr.built_in_auto} data-testid="translator-built-in" />
+						<span><b>{t('settings.subtitles.trBuiltIn')}</b><br /><span class="hint">{t('settings.subtitles.trBuiltInHint')}</span></span>
+					</label>
+				{:else if tr.kind}
 					<div class="two">
 						<Field id="tr-url" label={t('settings.subtitles.address')}>
 							<input id="tr-url" class="input mono" bind:value={tr.url} autocomplete="off" spellcheck="false" placeholder={tr.kind === 'openai' ? 'http://192.168.1.20:11434/v1' : 'http://192.168.1.20:9876'} required />
@@ -311,6 +326,20 @@
 				</div>{/if}
 			</SettingsCard>
 		</form>
+	{/if}
+	{#if settings && transcriber}
+		<SettingsCard id="transcriber-card" title={t('settings.subtitles.stt')} description={t('settings.subtitles.sttDesc')}>
+			{#if !transcriber.available}
+				<p class="hint" data-testid="stt-no-programs">{t('settings.subtitles.sttNoPrograms')}</p>
+			{:else}
+				<label class="checkline">
+					<input type="checkbox" form="subtitle-form" bind:checked={settings.transcribe_missing} data-testid="transcribe-missing" />
+					<span><b>{t('settings.subtitles.sttSwitch')}</b><br /><span class="hint">{t('settings.subtitles.sttSwitchHint')}</span></span>
+				</label>
+				<BuiltInModels speech bind:models={sttModels} />
+				<p class="small" data-testid="transcriber-state">{sttReady ? t('settings.subtitles.sttReady') : t('settings.subtitles.sttNeedsModels')}</p>
+			{/if}
+		</SettingsCard>
 	{/if}
 	<section class="sites-sec" id="sites-card" aria-labelledby="h-sites" tabindex="-1">
 		<div class="sites-head">

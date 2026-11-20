@@ -38,7 +38,11 @@ func withTranslator(t *testing.T, f *fix, ft *faketranslator.OpenAI) (*Service, 
 	s := &Service{Store: f.st, Vault: v}
 	var q []queued
 	s.Enqueue = func(_ context.Context, kind string, subj *domain.Subject, params map[string]any, _ string) error {
-		q = append(q, queued{kind, subj.ID, params})
+		var id int64
+		if subj != nil {
+			id = subj.ID
+		}
+		q = append(q, queued{kind, id, params})
 		return nil
 	}
 	ft.Key = fakeAIKey

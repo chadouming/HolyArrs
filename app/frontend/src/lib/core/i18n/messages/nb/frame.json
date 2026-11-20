@@ -103,5 +103,6 @@
 	"frame.feeds.clearNow": "Rydd bort nå",
 	"frame.feeds.cleared": "Ryddet bort fra Nedlasteren",
 	"frame.feeds.clearStill": "Ikke ryddet bort ennå",
-	"frame.error.pageGone": "Denne siden finnes ikke. Lenken kan være gammel eller skrevet feil."
+	"frame.error.pageGone": "Denne siden finnes ikke. Lenken kan være gammel eller skrevet feil.",
+	"frame.nav.subtitles": "Undertekster"
 }

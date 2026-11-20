@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Siri sedang tren di strim",
 	"server.suggest.trending-on-streaming": "Sedang tren di strim",
 	"server.discover.popular": "Popular",
-	"server.metadata.creator": "Pencipta"
+	"server.metadata.creator": "Pencipta",
+	"server.subtitles.could-not-make-a-subtitle-from": "Tidak dapat membuat sari kata daripada audio: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Sari kata {lang} dibuat daripada audio ({cues} baris)"
 }

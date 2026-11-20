@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "流媒體熱播影集",
 	"server.suggest.trending-on-streaming": "流媒體熱播",
 	"server.discover.popular": "熱門",
-	"server.metadata.creator": "創作者"
+	"server.metadata.creator": "創作者",
+	"server.subtitles.could-not-make-a-subtitle-from": "無法根據音訊產生字幕：{error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "已根據音訊產生{lang}字幕（{cues} 行）"
 }

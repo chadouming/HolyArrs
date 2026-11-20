@@ -103,5 +103,6 @@
 	"frame.feeds.clearNow": "Dọn ngay",
 	"frame.feeds.cleared": "Đã dọn khỏi Trình tải",
 	"frame.feeds.clearStill": "Chưa dọn",
-	"frame.error.pageGone": "Trang này không tồn tại. Liên kết có thể đã cũ hoặc gõ sai."
+	"frame.error.pageGone": "Trang này không tồn tại. Liên kết có thể đã cũ hoặc gõ sai.",
+	"frame.nav.subtitles": "Phụ đề"
 }

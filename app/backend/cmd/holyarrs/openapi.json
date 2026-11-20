@@ -17302,6 +17302,40 @@
         "x-holyarrs-scope": "write"
       }
     },
+    "/api/v1/files/{id}/subtitles/transcribe": {
+      "post": {
+        "description": "Queues a job that writes a subtitle from the File's audio. Refused when the File already has a text subtitle or the transcriber is not ready.",
+        "operationId": "transcribeFileSubtitles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The job is queued."
+          },
+          "404": {
+            "description": "No such File."
+          },
+          "409": {
+            "description": "The File has a text subtitle, or the transcriber is not ready."
+          }
+        },
+        "summary": "Make a subtitle from the audio",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
     "/api/v1/files/{id}/subtitles/translate": {
       "post": {
         "description": "Queues a translation of one subtitle of a File with the owner's translator. Without a source, it takes a text file beside the video, then a text track inside it, then the best site file in the from language; picture tracks are skipped. A subtitle made by a person is never replaced. The Job saves a .LANG.srt with the same timings, marked as a translation.",
@@ -26809,6 +26843,24 @@
         "x-holyarrs-scope": "write"
       }
     },
+    "/api/v1/settings/subtitles/transcriber": {
+      "get": {
+        "description": "Whether HolyArrs can make subtitles from a video's audio here: the speech program, its models, and what is missing.",
+        "operationId": "getSubtitleTranscriber",
+        "responses": {
+          "200": {
+            "description": "The transcriber's state."
+          }
+        },
+        "summary": "Read the transcriber's state",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "read"
+      }
+    },
     "/api/v1/settings/subtitles/translator": {
       "get": {
         "description": "The translator HolyArrs uses for subtitles no site has. The key itself is never sent.",
@@ -26879,6 +26931,115 @@
           }
         },
         "summary": "Change the subtitle translator",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/settings/subtitles/translator/models": {
+      "get": {
+        "description": "The models HolyArrs can download for its built-in translator and for making subtitles from the audio, with each one's size, the memory it needs, and whether it is downloaded.",
+        "operationId": "listSubtitleModels",
+        "responses": {
+          "200": {
+            "description": "The models."
+          }
+        },
+        "summary": "List the built-in models",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/settings/subtitles/translator/models/{id}": {
+      "delete": {
+        "description": "Deletes the model's file from the config folder.",
+        "operationId": "deleteSubtitleModel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The model is deleted."
+          },
+          "404": {
+            "description": "No such model."
+          }
+        },
+        "summary": "Delete a built-in model",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/settings/subtitles/translator/models/{id}/download": {
+      "delete": {
+        "description": "Stops a running download. The part already downloaded is kept.",
+        "operationId": "cancelSubtitleModelDownload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The download stopped."
+          },
+          "404": {
+            "description": "No such model."
+          }
+        },
+        "summary": "Stop a model download",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "write"
+      },
+      "post": {
+        "description": "Starts the download in the background. A download that stopped part way picks up where it left off.",
+        "operationId": "downloadSubtitleModel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The download started."
+          },
+          "404": {
+            "description": "No such model."
+          }
+        },
+        "summary": "Download a built-in model",
         "tags": [
           "Subtitles"
         ],
@@ -28750,6 +28911,24 @@
         "x-holyarrs-part": "subtitles",
         "x-holyarrs-permission": "manage_library",
         "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/subtitles/overview": {
+      "get": {
+        "description": "How many wanted subtitles are missing, how many Files need a subtitle made from their audio, how many have another language to translate, whether the translator and the transcriber are ready, and the subtitle jobs that run or wait with how far each is.",
+        "operationId": "getSubtitlesOverview",
+        "responses": {
+          "200": {
+            "description": "The overview."
+          }
+        },
+        "summary": "Read the Subtitles page's numbers and jobs",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
       }
     },
     "/api/v1/subtitles/search": {
@@ -31242,6 +31421,66 @@
         },
         "summary": "Fetch the next episodes of a season pack",
         "x-holyarrs-part": "shows",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/titles/{id}/subtitle-terms": {
+      "get": {
+        "description": "The names and terms given to the transcriber for one language: the owner's own, and those gathered from the Title's subtitles.",
+        "operationId": "getTitleSubtitleTerms",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The names and terms."
+          },
+          "404": {
+            "description": "No such Title."
+          }
+        },
+        "summary": "Read a Title's names and terms",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      },
+      "put": {
+        "description": "Saves the owner's own names and terms for one language, and the gathered ones to leave out.",
+        "operationId": "putTitleSubtitleTerms",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The names and terms as saved."
+          },
+          "404": {
+            "description": "No such Title."
+          }
+        },
+        "summary": "Set a Title's names and terms",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
         "x-holyarrs-permission": "manage_library",
         "x-holyarrs-scope": "write"
       }

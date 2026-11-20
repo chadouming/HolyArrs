@@ -546,7 +546,8 @@ func serve(ctx context.Context, c config, o runOpts) error {
 		return false, nil, nil
 	})
 	// Subtitles: searches after imports and better copies, two schedules.
-	subs := &subtitles.Service{Store: s, Live: hub, Vault: vault}
+	subs := newSubtitles(&subtitles.Service{Store: s, Live: hub, Vault: vault}, c.ConfigDir)
+	defer subs.Runners.Stop()
 	subs.Register(q)
 	if !c.SafeMode {
 		s.OnEvent(func(e domain.Event) {

@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Sèries en tendència en streaming",
 	"server.suggest.trending-on-streaming": "Tendència en streaming",
 	"server.discover.popular": "Populars",
-	"server.metadata.creator": "Creador"
+	"server.metadata.creator": "Creador",
+	"server.subtitles.could-not-make-a-subtitle-from": "No s'ha pogut crear un subtítol a partir de l'àudio: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "S'ha creat el subtítol en {lang} a partir de l'àudio ({cues} línies)"
 }

@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "配信でトレンドの番組",
 	"server.suggest.trending-on-streaming": "配信でトレンド",
 	"server.discover.popular": "人気",
-	"server.metadata.creator": "原作者"
+	"server.metadata.creator": "原作者",
+	"server.subtitles.could-not-make-a-subtitle-from": "音声から字幕を作成できませんでした: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "音声から{lang}の字幕を作成しました（{cues} 行）"
 }

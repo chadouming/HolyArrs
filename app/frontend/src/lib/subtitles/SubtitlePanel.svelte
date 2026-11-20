@@ -3,7 +3,12 @@
 	import Button from '#lib/ui/Button.svelte';
 	import Icon from '#lib/ui/Icon.svelte';
 	import WishEditor from './LanguageWants.svelte';
+	import TitleTerms from './TitleTerms.svelte';
 	import {
+		canTranscribe,
+		madeOf,
+		translatorCanTranslate,
+		type Transcriber,
 		fileName,
 		fromWords,
 		kindLabel,
@@ -76,6 +81,9 @@
 	let turnError = $state('');
 	let busy = $state(false);
 	let canTranslate = $state(false);
+	// Whether subtitles can be made from audio here; null until it is known.
+	let transcriber = $state<Transcriber | null>(null);
+	let transcribing = $state(0);
 	let translating = $state(0);
 	let trSource = $state(0);
 	let trError = $state('');
@@ -85,6 +93,17 @@
 	const myFiles = $derived((data?.files ?? []).filter((f) => !itemId || f.item_id === itemId));
 	const ownRow = $derived((data?.wishes ?? []).find((w) => (itemId ? w.item_id === itemId : !w.item_id && !w.version_id)));
 	const resolved = $derived(myFiles[0]?.wish);
+	// The languages a title's names and terms can be kept for: those wanted, then those its subtitles are in.
+	const termLanguages = $derived.by(() => {
+		const out: string[] = [];
+		const add = (l: string) => {
+			const base = l.split('-')[0];
+			if (base && !out.includes(base)) out.push(base);
+		};
+		for (const w of resolved?.languages ?? []) add(w.language);
+		for (const f of data?.files ?? []) for (const r of f.subtitles) if (r.state === 'present' && r.place !== 'wish') add(r.language);
+		return out;
+	});
 	const shown = $derived.by(() => {
 		if (ownRow) return { languages: ownRow.languages, from: itemId ? 'episode' : 'title' };
 		if (resolved) return resolved;
@@ -112,7 +131,8 @@
 			},
 			() => {}
 		);
-		if (session.can('settings')) api.get<Translator>('/settings/subtitles/translator').then((x) => (canTranslate = !!x.kind && !!x.url), () => {});
+		if (session.can('settings')) api.get<Translator>('/settings/subtitles/translator').then((x) => (canTranslate = translatorCanTranslate(x)), () => {});
+		api.get<Transcriber>('/settings/subtitles/transcriber').then((x) => (transcriber = x), () => {});
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const soon = () => {
 			clearTimeout(timer);
@@ -170,6 +190,19 @@
 			toasts.push(t('subtitles.panel.searchFailed'), 'fail', { body: message(e) });
 		} finally {
 			searching = false;
+		}
+	}
+
+	// Make from audio: asks for a transcript of a file that has no text subtitle.
+	async function transcribe(fileId: number) {
+		transcribing = fileId;
+		try {
+			await api.post(`/files/${fileId}/subtitles/transcribe`);
+			toasts.push(t('subtitles.panel.transcribing'), 'info');
+		} catch (e) {
+			toasts.push(t('subtitles.panel.transcribeFailed'), 'fail', { body: message(e) });
+		} finally {
+			transcribing = 0;
 		}
 	}
 
@@ -322,6 +355,10 @@
 			</form>
 		{/if}
 
+		{#if !itemId && transcriber?.available && data}
+			<TitleTerms {titleId} {langs} languages={termLanguages} id={idp} />
+		{/if}
+
 		{#if !showFiles}
 			<p class="small missing-line">
 				{#if missingCount}
@@ -339,6 +376,9 @@
 					<p class="mono xs muted path">{#if myFiles.length > 1 && f.version_label}<b>{f.version_label === 'Main' ? t('discover.titleLibrary.mainCopy') : f.version_label}</b>{' · '}{/if}{fileName(f.relative_path)}</p>
 					{#if have.length === 0}
 						<p class="small muted">{t('subtitles.panel.noneYet')}</p>
+						{#if canTranscribe(f.subtitles, transcriber)}
+							<Button variant="plain" size="sm" disabled={transcribing === f.file_id} busy={transcribing === f.file_id} onclick={() => transcribe(f.file_id)} data-testid="subtitle-transcribe">{t('subtitles.panel.makeFromAudio')}</Button>
+						{/if}
 					{:else}
 						<ul class="have">
 							{#each have as s (s.ID)}
@@ -347,7 +387,7 @@
 										<span class="grow">
 											<b class="small">{langName(s.language, langs)}</b>
 											<span class="chip">{kindLabel(s)}</span>
-											{#if s.made}<span class="chip wait" data-testid="subtitle-made">{madeLabel(s.made)}</span>{/if}
+											{#if madeOf(s)}<span class="chip wait" data-testid="subtitle-made">{madeLabel(madeOf(s))}</span>{/if}
 											{#if s.picture}<span class="chip" title={t('subtitles.panel.pictureTitle')} data-testid="subtitle-picture">{t('subtitles.panel.picture')}</span>{/if}
 											{#if s.score !== undefined && s.score !== null}<span class="chip {passes(s.score, passMark) ? 'ok' : 'wait'}" title={t('subtitles.panel.scoreTitle')}>{s.score}/100</span>{/if}
 										</span>

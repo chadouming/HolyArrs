@@ -103,5 +103,6 @@
 	"frame.feeds.clearNow": "Tühjenda kohe",
 	"frame.feeds.cleared": "Allalaadijast tühjendatud",
 	"frame.feeds.clearStill": "Pole veel tühjendatud",
-	"frame.error.pageGone": "Seda lehte pole olemas. Link võib olla vana või valesti kirjutatud."
+	"frame.error.pageGone": "Seda lehte pole olemas. Link võib olla vana või valesti kirjutatud.",
+	"frame.nav.subtitles": "Subtiitrid"
 }

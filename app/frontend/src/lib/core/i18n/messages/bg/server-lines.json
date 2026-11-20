@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Актуални сериали в стрийминг",
 	"server.suggest.trending-on-streaming": "Актуално в стрийминг",
 	"server.discover.popular": "Популярни",
-	"server.metadata.creator": "Създател"
+	"server.metadata.creator": "Създател",
+	"server.subtitles.could-not-make-a-subtitle-from": "Неуспешно създаване на субтитри от звука: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Създадени са субтитри на {lang} от звука ({cues} реда)"
 }

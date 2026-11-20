@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Trending na show sa streaming",
 	"server.suggest.trending-on-streaming": "Trending sa streaming",
 	"server.discover.popular": "Sikat",
-	"server.metadata.creator": "Creator"
+	"server.metadata.creator": "Creator",
+	"server.subtitles.could-not-make-a-subtitle-from": "Hindi nagawa ang subtitle mula sa audio: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Nagawa ang subtitle na {lang} mula sa audio ({cues} linya)"
 }

@@ -28,8 +28,24 @@ type Want struct {
 	HearingImpaired string `json:"hearing_impaired"`
 	Forced          bool   `json:"forced"`
 	// TranslateFrom names the language a missing subtitle may be translated
-	// from with the owner's translator, such as en. Empty: never translated.
+	// from with the owner's translator, such as en, or FromAny for whatever
+	// text subtitle the video has. Empty: never translated.
 	TranslateFrom string `json:"translate_from,omitempty"`
+}
+
+// FromAny is the TranslateFrom value that takes a text subtitle in any
+// language the video has, beside it or inside it. Sites are not asked for a
+// source then: there is no one language to ask for.
+const FromAny = "any"
+
+// fromFits reports whether a subtitle in language got may be the source for
+// a want translated from from: the named language, or with FromAny any known
+// language but the wanted one.
+func fromFits(from, got, wanted string) bool {
+	if from == FromAny {
+		return got != "" && !LangMatches(wanted, got) && !LangMatches(got, wanted)
+	}
+	return LangMatches(from, got)
 }
 
 // Errors a wish can be refused with.
@@ -61,7 +77,7 @@ func CleanWants(ws []Want) ([]Want, error) {
 		default:
 			return nil, fmt.Errorf("hearing_impaired must be %s, %s or %s", HINormal, HIOnly, HIEither)
 		}
-		if w.TranslateFrom != "" {
+		if w.TranslateFrom != "" && w.TranslateFrom != FromAny {
 			from := NormLanguage(w.TranslateFrom)
 			switch {
 			case from == "":

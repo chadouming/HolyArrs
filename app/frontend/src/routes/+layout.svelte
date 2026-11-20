@@ -348,6 +348,8 @@
 		// Everyone signed in watches their own downloads; the rest of Downloads is for managers.
 		if (p === '/downloads') return true;
 		if (p.startsWith('/downloads')) return allowed('manage_library');
+		// Subtitles sits under Activity, for people who look after the Library.
+		if (p === '/subtitles') return allowed('manage_library');
 		if (p === '/library/held' || p === '/library/turned-down' || p === '/library/rename' || p === '/library/import' || p === '/library/import-files' || p === '/library/missing-subtitles' || p === '/library/copies' || p === '/library/stats') return allowed('manage_library');
 		if (p.startsWith('/requests')) return allowed('wishlist');
 		// Status sits under Manage, as in the side menu.

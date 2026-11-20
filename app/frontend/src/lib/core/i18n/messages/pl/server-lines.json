@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Seriale na topie w streamingu",
 	"server.suggest.trending-on-streaming": "Na topie w streamingu",
 	"server.discover.popular": "Popularne",
-	"server.metadata.creator": "Twórca"
+	"server.metadata.creator": "Twórca",
+	"server.subtitles.could-not-make-a-subtitle-from": "Nie udało się utworzyć napisów z dźwięku: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Utworzono napisy w języku {lang} z dźwięku ({cues} linii)"
 }

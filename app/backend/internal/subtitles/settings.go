@@ -46,6 +46,9 @@ type Settings struct {
 	// Adaptive drops a wish that keeps finding nothing to a weekly try after
 	// three weeks, to spare the sites.
 	Adaptive bool `json:"adaptive"`
+	// TranscribeMissing makes a subtitle from the audio when a File has no
+	// text subtitle in any language and a search saved none.
+	TranscribeMissing bool `json:"transcribe_missing"`
 	// SyncFromFPS and SyncToFPS are the frame-rate change a Sync fix offers first,
 	// such as a subtitle timed for 25 fps on a 23.976 fps video. SyncStepMS is the
 	// step of the offset buttons. A person can change all three in the fix.
@@ -91,7 +94,7 @@ func (s *Settings) Validate() error {
 
 var settingKeys = []string{"subtitle_languages", "subtitle_pass_mark_movie", "subtitle_pass_mark_episode", "subtitle_use_built_in",
 	"subtitle_ignore_picture_tracks", "subtitle_hi_suffix", "subtitle_better", "subtitle_better_days", "subtitle_batch", "subtitle_adaptive",
-	"subtitle_sync_from_fps", "subtitle_sync_to_fps", "subtitle_sync_step_ms"}
+	"subtitle_transcribe_missing", "subtitle_sync_from_fps", "subtitle_sync_to_fps", "subtitle_sync_step_ms"}
 
 // ReadSettings reads the subtitle settings. Unset or odd values keep their
 // defaults so a bad row never breaks subtitles.
@@ -152,6 +155,10 @@ func ReadSettings(ctx context.Context, db *sql.DB) Settings {
 				if berr == nil {
 					s.Adaptive = b
 				}
+			case "subtitle_transcribe_missing":
+				if berr == nil {
+					s.TranscribeMissing = b
+				}
 			case "subtitle_sync_from_fps":
 				if ferr == nil && fl >= 1 && fl <= 120 {
 					s.SyncFromFPS = fl
@@ -189,7 +196,8 @@ func SaveSettings(ctx context.Context, st *database.Store, s Settings, by domain
 		"subtitle_ignore_picture_tracks": strconv.FormatBool(s.IgnorePictureTracks), "subtitle_hi_suffix": s.HISuffix,
 		"subtitle_better": strconv.FormatBool(s.Better), "subtitle_better_days": strconv.Itoa(s.BetterDays),
 		"subtitle_batch": strconv.Itoa(s.Batch), "subtitle_adaptive": strconv.FormatBool(s.Adaptive),
-		"subtitle_sync_from_fps": strconv.FormatFloat(s.SyncFromFPS, 'f', -1, 64), "subtitle_sync_to_fps": strconv.FormatFloat(s.SyncToFPS, 'f', -1, 64),
+		"subtitle_transcribe_missing": strconv.FormatBool(s.TranscribeMissing),
+		"subtitle_sync_from_fps":      strconv.FormatFloat(s.SyncFromFPS, 'f', -1, 64), "subtitle_sync_to_fps": strconv.FormatFloat(s.SyncToFPS, 'f', -1, 64),
 		"subtitle_sync_step_ms": strconv.Itoa(s.SyncStepMS),
 	}
 	actor, _ := json.Marshal(by)

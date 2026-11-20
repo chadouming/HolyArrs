@@ -9,3 +9,4 @@ app/frontend/.svelte-kit/
 app/tests/
 .env
 .env.*
+.claude/

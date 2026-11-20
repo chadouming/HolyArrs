@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Felkapott sorozatok a streamingen",
 	"server.suggest.trending-on-streaming": "Felkapott a streamingen",
 	"server.discover.popular": "Népszerű",
-	"server.metadata.creator": "Alkotó"
+	"server.metadata.creator": "Alkotó",
+	"server.subtitles.could-not-make-a-subtitle-from": "Nem sikerült feliratot készíteni a hangból: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "A(z) {lang} felirat elkészült a hangból ({cues} sor)"
 }

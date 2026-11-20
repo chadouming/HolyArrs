@@ -103,5 +103,6 @@
 	"frame.feeds.clearNow": "Limpar agora",
 	"frame.feeds.cleared": "Limpo do Gestor de downloads",
 	"frame.feeds.clearStill": "Ainda não limpo",
-	"frame.error.pageGone": "Esta página não existe. A ligação pode estar desatualizada ou mal escrita."
+	"frame.error.pageGone": "Esta página não existe. A ligação pode estar desatualizada ou mal escrita.",
+	"frame.nav.subtitles": "Legendas"
 }

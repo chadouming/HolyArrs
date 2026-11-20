@@ -103,5 +103,6 @@
 	"frame.feeds.clearNow": "Ryd væk nu",
 	"frame.feeds.cleared": "Ryddet væk fra Downloaderen",
 	"frame.feeds.clearStill": "Endnu ikke ryddet væk",
-	"frame.error.pageGone": "Siden findes ikke. Linket kan være gammelt eller skrevet forkert."
+	"frame.error.pageGone": "Siden findes ikke. Linket kan være gammelt eller skrevet forkert.",
+	"frame.nav.subtitles": "Undertekster"
 }

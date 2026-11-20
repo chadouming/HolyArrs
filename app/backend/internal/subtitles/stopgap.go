@@ -94,6 +94,19 @@ func (s *Service) stopgap(ctx context.Context, sc *searchCtx, t target, choices 
 		}
 		out.Reason = why
 	}
+	// With no text subtitle in any language there is nothing to translate
+	// from: a transcript of the audio is asked for, once for the File.
+	if sc.transcribing {
+		out.Result, out.Reason = "transcribing", ""
+		return
+	}
+	if s.wantsTranscript(ctx, sc) {
+		if err := s.QueueTranscribe(ctx, sc.fc.file.ID, false); err == nil {
+			sc.transcribing = true
+			out.Result, out.Reason = "transcribing", ""
+			return
+		}
+	}
 	var made []Scored
 	for _, c := range choices {
 		if c.MachineMade != "" && c.Score.Refused == "" {
@@ -121,35 +134,42 @@ func (s *Service) stopgap(ctx context.Context, sc *searchCtx, t target, choices 
 func (s *Service) planTranslation(ctx context.Context, sc *searchCtx, w Want) (*TranslateRequest, string) {
 	from := w.TranslateFrom
 	req := &TranslateRequest{Language: w.Language, Forced: w.Forced, From: from}
+	what := from
+	if from == FromAny {
+		req.From, what = "", "text" // the source says its own language
+	}
 	stops := map[string]bool{}
 	if rows, err := stopgapRows(ctx, s.Store.Read(), sc.fc.file.ID); err == nil {
 		for _, r := range rows {
-			if r.RelativePath != nil {
+			if r.RelativePath != nil && !r.Transcribed { // a transcript may be translated from
 				stops[*r.RelativePath] = true
 			}
 		}
 	}
 	haves := sourceOrder(sc.status.Haves, w)
 	for _, h := range haves {
-		if h.Place == "beside" && LangMatches(from, h.Language) && sourceFits(w, h.Forced, h.HearingImpaired) && textFormat(h.Path) != "" && !stops[h.Path] {
+		if h.Place == "beside" && fromFits(from, h.Language, w.Language) && sourceFits(w, h.Forced, h.HearingImpaired) && textFormat(h.Path) != "" && !stops[h.Path] {
 			req.Source, req.Path = SourceBeside, h.Path
 			return req, ""
 		}
 	}
-	why := "no " + from + " subtitle to translate from"
+	why := "no " + what + " subtitle to translate from"
 	for _, h := range haves {
-		if h.Place != "built_in" || !LangMatches(from, h.Language) || !sourceFits(w, h.Forced, h.HearingImpaired) {
+		if h.Place != "built_in" || !fromFits(from, h.Language, w.Language) || !sourceFits(w, h.Forced, h.HearingImpaired) {
 			continue
 		}
 		switch {
 		case h.Picture || !container.TextCodec(h.Codec):
 			why = ErrPicture.Error()
 		case !sc.translator.BuiltInAuto:
-			why = "the built-in " + from + " track is translated by hand only"
+			why = "the built-in " + what + " track is translated by hand only"
 		default:
 			req.Source, req.Track = SourceBuiltIn, h.Track
 			return req, ""
 		}
+	}
+	if from == FromAny {
+		return nil, why // no site was asked for a source
 	}
 	var cands []Scored
 	for _, c := range sc.all {
@@ -182,4 +202,6 @@ type searchCtx struct {
 	turned     map[string]bool
 	translator Translator
 	by         domain.Actor
+	// transcribing: a transcript was asked for in this search already.
+	transcribing bool
 }

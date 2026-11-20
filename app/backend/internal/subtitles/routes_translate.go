@@ -10,7 +10,7 @@ import (
 
 func translateError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, ErrNoTranslator), errors.Is(err, ErrHasSubtitle), errors.Is(err, ErrPicture), errors.Is(err, ErrNoSource),
+	case errors.Is(err, ErrNoTranslator), errors.Is(err, ErrNoRunner), errors.Is(err, ErrNoModel), errors.Is(err, ErrHasSubtitle), errors.Is(err, ErrPicture), errors.Is(err, ErrNoSource),
 		errors.Is(err, ErrKeyElsewhere), errors.Is(err, ErrNoVault):
 		webserver.Fail(w, http.StatusConflict, err.Error())
 	default:
@@ -24,8 +24,8 @@ func (a *Handlers) getTranslator(w http.ResponseWriter, r *http.Request) {
 
 func (a *Handlers) putTranslator(w http.ResponseWriter, r *http.Request) {
 	cur := a.svc.Translator(r.Context()) // fields the request leaves out keep their value
-	in := TranslatorInput{Kind: cur.Kind, URL: cur.URL, Model: cur.Model, BuiltInAuto: cur.BuiltInAuto}
-	if !webserver.Decode(w, r, &in, `send any of kind (openai, lingarr or "" for off), url, model, key, clear_key and built_in_auto`) {
+	in := TranslatorInput{Kind: cur.Kind, URL: cur.URL, Model: cur.Model, BuiltInAuto: cur.BuiltInAuto, BuiltInModel: cur.BuiltInModel, Threads: cur.Threads, GPU: cur.GPU}
+	if !webserver.Decode(w, r, &in, `send any of kind (openai, lingarr, builtin or "" for off), url, model, key, clear_key, built_in_auto, builtin_model, threads and gpu`) {
 		return
 	}
 	t, err := a.svc.SaveTranslator(r.Context(), in, actorOf(r))

@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Populiarūs serialai srautinėse platformose",
 	"server.suggest.trending-on-streaming": "Populiaru srautinėse platformose",
 	"server.discover.popular": "Populiaru",
-	"server.metadata.creator": "Kūrėjas"
+	"server.metadata.creator": "Kūrėjas",
+	"server.subtitles.could-not-make-a-subtitle-from": "Nepavyko sukurti subtitrų iš garso: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Iš garso sukurti {lang} subtitrai ({cues} eil.)"
 }

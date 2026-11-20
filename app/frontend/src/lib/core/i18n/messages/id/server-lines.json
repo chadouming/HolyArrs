@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Serial yang sedang tren di streaming",
 	"server.suggest.trending-on-streaming": "Tren di streaming",
 	"server.discover.popular": "Populer",
-	"server.metadata.creator": "Kreator"
+	"server.metadata.creator": "Kreator",
+	"server.subtitles.could-not-make-a-subtitle-from": "Tidak dapat membuat subtitle dari audio: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Subtitle {lang} dibuat dari audio ({cues} baris)"
 }

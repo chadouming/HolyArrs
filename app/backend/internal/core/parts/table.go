@@ -611,8 +611,11 @@ var routeOwners = map[string]Owner{
 	"GET /api/v1/subtitles/languages":           subtitles,
 	"GET /api/v1/titles/{id}/subtitles":         subtitles,
 	"PUT /api/v1/titles/{id}/subtitle-wish":     subtitles,
+	"GET /api/v1/titles/{id}/subtitle-terms":    subtitles,
+	"PUT /api/v1/titles/{id}/subtitle-terms":    subtitles,
 	"POST /api/v1/subtitles/search":             subtitles,
 	"GET /api/v1/subtitles/missing":             subtitles,
+	"GET /api/v1/subtitles/overview":            subtitles,
 	"POST /api/v1/subtitles/missing/search":     subtitles,
 	"POST /api/v1/files/{id}/subtitles/choices": subtitles,
 	"POST /api/v1/files/{id}/subtitles/choose":  subtitles,
@@ -626,10 +629,16 @@ var routeOwners = map[string]Owner{
 	"POST /api/v1/subtitle-sites/{id}/test":     subtitles,
 
 	// Subtitle translation.
-	"GET /api/v1/settings/subtitles/translator":       subtitles,
-	"PUT /api/v1/settings/subtitles/translator":       subtitles,
-	"POST /api/v1/settings/subtitles/translator/test": subtitles,
-	"POST /api/v1/files/{id}/subtitles/translate":     subtitles,
+	"GET /api/v1/settings/subtitles/translator":                         subtitles,
+	"GET /api/v1/settings/subtitles/transcriber":                        subtitles,
+	"PUT /api/v1/settings/subtitles/translator":                         subtitles,
+	"POST /api/v1/settings/subtitles/translator/test":                   subtitles,
+	"GET /api/v1/settings/subtitles/translator/models":                  subtitles,
+	"POST /api/v1/settings/subtitles/translator/models/{id}/download":   subtitles,
+	"DELETE /api/v1/settings/subtitles/translator/models/{id}/download": subtitles,
+	"DELETE /api/v1/settings/subtitles/translator/models/{id}":          subtitles,
+	"POST /api/v1/files/{id}/subtitles/translate":                       subtitles,
+	"POST /api/v1/files/{id}/subtitles/transcribe":                      subtitles,
 
 	// Requests: asks, limits, and the messages about asks.
 	"GET /api/v1/asks":                               wishlist,

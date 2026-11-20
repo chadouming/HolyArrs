@@ -21,9 +21,15 @@ describe('buildNav', () => {
 			[null, ['Home', 'Explore', 'New & Popular']],
 			['Library', ['Movies', 'TV shows', 'Music', 'Stats']],
 			['Your stuff', ['Calendar', 'Requests']],
-			['Activity', ['Downloads', 'History']],
+			['Activity', ['Downloads', 'History', 'Subtitles']],
 			['System', ['Status', 'Plugins', 'Settings']]
 		]);
+	});
+	it('lists Subtitles for people who manage the Library, and not when the part is off', () => {
+		const act = (i: NavInput) => buildNav(i).find((s) => s.id === 'activity')?.items.map((x) => x.href) ?? [];
+		expect(act(owner)).toContain('/subtitles');
+		expect(act(member)).not.toContain('/subtitles');
+		expect(act({ ...owner, off: (h) => h === '/subtitles' })).not.toContain('/subtitles');
 	});
 	it('lists Library stats only for people who manage the Library', () => {
 		const lib = (i: NavInput) => buildNav(i).find((s) => s.id === 'library')?.items.map((x) => x.href);

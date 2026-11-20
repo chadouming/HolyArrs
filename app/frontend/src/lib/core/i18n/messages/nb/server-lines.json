@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Trendy serier på strømming",
 	"server.suggest.trending-on-streaming": "Trendy på strømming",
 	"server.discover.popular": "Populært",
-	"server.metadata.creator": "Skaper"
+	"server.metadata.creator": "Skaper",
+	"server.subtitles.could-not-make-a-subtitle-from": "Kunne ikke lage en undertekst fra lyden: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Laget underteksten på {lang} fra lyden ({cues} linjer)"
 }

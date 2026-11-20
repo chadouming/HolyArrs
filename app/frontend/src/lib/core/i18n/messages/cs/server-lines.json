@@ -1579,5 +1579,7 @@
 	"server.suggest.trending-shows-on-streaming": "Trendy seriály ve streamování",
 	"server.suggest.trending-on-streaming": "Trendy ve streamování",
 	"server.discover.popular": "Oblíbené",
-	"server.metadata.creator": "Tvůrce"
+	"server.metadata.creator": "Tvůrce",
+	"server.subtitles.could-not-make-a-subtitle-from": "Titulky ze zvuku se nepodařilo vytvořit: {error}",
+	"server.subtitles.made-the-subtitle-from-the-audio": "Titulky v jazyce {lang} vytvořeny ze zvuku ({cues} řádků)"
 }

@@ -241,8 +241,11 @@ var RoutePerms = map[string]webserver.Perm{
 	"PUT /api/v1/settings/subtitles":                 webserver.PermSettings,
 	"GET /api/v1/titles/{id}/subtitles":              webserver.PermManageLibrary,
 	"PUT /api/v1/titles/{id}/subtitle-wish":          webserver.PermManageLibrary,
+	"GET /api/v1/titles/{id}/subtitle-terms":         webserver.PermManageLibrary,
+	"PUT /api/v1/titles/{id}/subtitle-terms":         webserver.PermManageLibrary,
 	"POST /api/v1/subtitles/search":                  webserver.PermManageLibrary,
 	"GET /api/v1/subtitles/missing":                  webserver.PermManageLibrary,
+	"GET /api/v1/subtitles/overview":                 webserver.PermManageLibrary,
 	"POST /api/v1/subtitles/missing/search":          webserver.PermManageLibrary,
 	"POST /api/v1/files/{id}/subtitles/choices":      webserver.PermManageLibrary,
 	"POST /api/v1/files/{id}/subtitles/choose":       webserver.PermManageLibrary,
@@ -590,10 +593,16 @@ var RoutePerms = map[string]webserver.Perm{
 	"POST /api/v1/migrate/moves/{id}/undo":  webserver.NeedUsers,
 
 	// Subtitle translation with the owner's own translator.
-	"GET /api/v1/settings/subtitles/translator":       webserver.PermSettings,
-	"PUT /api/v1/settings/subtitles/translator":       webserver.PermSettings,
-	"POST /api/v1/settings/subtitles/translator/test": webserver.PermSettings,
-	"POST /api/v1/files/{id}/subtitles/translate":     webserver.PermManageLibrary,
+	"GET /api/v1/settings/subtitles/translator":                         webserver.PermSettings,
+	"GET /api/v1/settings/subtitles/transcriber":                        webserver.PermSettings,
+	"PUT /api/v1/settings/subtitles/translator":                         webserver.PermSettings,
+	"POST /api/v1/settings/subtitles/translator/test":                   webserver.PermSettings,
+	"GET /api/v1/settings/subtitles/translator/models":                  webserver.PermSettings,
+	"POST /api/v1/settings/subtitles/translator/models/{id}/download":   webserver.PermSettings,
+	"DELETE /api/v1/settings/subtitles/translator/models/{id}/download": webserver.PermSettings,
+	"DELETE /api/v1/settings/subtitles/translator/models/{id}":          webserver.PermSettings,
+	"POST /api/v1/files/{id}/subtitles/translate":                       webserver.PermManageLibrary,
+	"POST /api/v1/files/{id}/subtitles/transcribe":                      webserver.PermManageLibrary,
 
 	// Reports: anyone signed in reports a problem and sees their own;
 	// fixing and opening again needs manage_library.

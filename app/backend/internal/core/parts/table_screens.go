@@ -38,6 +38,7 @@ var screenOwners = map[string]Owner{
 	"/library/import-files":          Media,
 	"/library/rename":                Media,
 	"/library/missing-subtitles":     subtitles,
+	"/subtitles":                     subtitles,
 	"/search":                        Media,
 	"/title/[kind]/[tmdb]":           Media,
 	"/music/artist/[mbid]":           music,
@@ -153,7 +154,9 @@ var jobOwners = map[string]Owner{
 	"subtitle_better":  subtitles,
 	"subtitle_look":    subtitles,
 
-	"subtitle_translate": subtitles,
+	"subtitle_translate":      subtitles,
+	"subtitle_model_download": subtitles,
+	"subtitle_transcribe":     subtitles,
 
 	// Requests.
 	"sync_plex_watchlists": wishlist,
