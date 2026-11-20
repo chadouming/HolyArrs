@@ -355,7 +355,7 @@ func TestLinesNeverDropWords(t *testing.T) {
 		[3]any{" Somebody", 0, 0}, [3]any{" surely", 0, 0}, [3]any{" heard", 0, 0}, [3]any{" it.", 0, 0},
 		[3]any{" Then", 0, 0}, [3]any{" everything", 0, 0}, [3]any{" went", 0, 0}, [3]any{" quiet.", 0, 0})
 	var words []string
-	lines := g.lines()
+	lines := g.lines(nil)
 	for i, c := range lines {
 		if c.EndMS <= c.StartMS || (i > 0 && c.StartMS < lines[i-1].EndMS) {
 			t.Fatalf("line %d runs %d to %d", i, c.StartMS, c.EndMS)
@@ -372,7 +372,7 @@ func TestLinesNeverDropWords(t *testing.T) {
 func TestLinesKeepSegmentTextWhenPiecesAreBroken(t *testing.T) {
 	text := " Il a été très étonné de le voir arriver si tôt ce matin-là, et moi aussi."
 	g := segmentOf(0, 12000, text, [3]any{" Il", 0, 500}, [3]any{" a", 500, 800}, [3]any{" �", 800, 1200}, [3]any{"t�", 1200, 1500}, [3]any{" très", 1500, 2000})
-	lines := g.lines()
+	lines := g.lines(nil)
 	if len(lines) != 1 || lines[0].Text != strings.TrimSpace(text) || lines[0].StartMS != 0 || lines[0].EndMS != 12000 {
 		t.Fatalf("lines %+v", lines)
 	}

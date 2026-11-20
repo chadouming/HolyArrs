@@ -271,25 +271,35 @@ func Run(ctx context.Context, video string, t Track, hint string, o Options) (Re
 	base := filepath.Join(dir, "out")
 	// The full JSON holds a time for every word, which is what lets a long
 	// segment be cut into lines that are timed, not guessed.
-	args := []string{"-m", o.Model, "-f", wav, "-l", lang, "-ojf", "-of", base, "-np", "-t", strconv.Itoa(max(o.Threads, 1)), "--vad", "-vm", o.VAD}
+	args := []string{"-m", o.Model, "-f", wav, "-l", lang, "-ojf", "-of", base, "-t", strconv.Itoa(max(o.Threads, 1)), "--vad", "-vm", o.VAD}
 	args = append(args, o.device()...)
 	if p := cleanPrompt(o.Prompt); p != "" {
 		// Given once, at the start. Carried through the whole file it made
 		// Whisper stop marking times: one segment for every half minute.
 		args = append(args, "--prompt", p)
 	}
-	var onLine func(string)
+	// whisper-cli is left to write its log: it says there which stretches of
+	// sound voice detection kept, which is what places each word in the video.
+	// The log is long, so it reaches the app's own only when the run fails.
+	var kept timeMap
+	var said []string
 	if o.Progress != nil {
-		// whisper-cli prints its percent beside its output when asked to.
-		args = append(args, "-pp")
-		onLine = func(line string) {
-			if m := progressLine.FindStringSubmatch(line); m != nil {
-				n, _ := strconv.Atoi(m[1])
-				o.tell(shareLanguage + (1-shareLanguage)*float64(min(n, 100))/100)
-			}
+		args = append(args, "-pp") // and its percent, beside the log
+	}
+	onLine := func(line string) {
+		kept.add(line)
+		if m := progressLine.FindStringSubmatch(line); m != nil {
+			n, _ := strconv.Atoi(m[1])
+			o.tell(shareLanguage + (1-shareLanguage)*float64(min(n, 100))/100)
 		}
 	}
-	if _, _, err := runWatch(ctx, o.Log, onLine, o.env(), o.Programs.Whisper, args...); err != nil {
+	quiet := func(line string) { said = append(said, line) }
+	if _, _, err := runWatch(ctx, quiet, onLine, o.env(), o.Programs.Whisper, args...); err != nil {
+		if o.Log != nil {
+			for _, l := range said {
+				o.Log(l)
+			}
+		}
 		return res, err
 	}
 	raw, err := os.ReadFile(base + ".json")
@@ -303,7 +313,7 @@ func Run(ctx context.Context, video string, t Track, hint string, o Options) (Re
 		return res, fmt.Errorf("the transcript could not be read: %w", err)
 	}
 	for _, seg := range doc.Transcription {
-		res.Cues = append(res.Cues, seg.lines()...)
+		res.Cues = append(res.Cues, seg.lines(kept)...)
 	}
 	if len(res.Cues) == 0 {
 		return res, ErrNoSpeech
@@ -311,9 +321,80 @@ func Run(ctx context.Context, video string, t Track, hint string, o Options) (Re
 	return res, nil
 }
 
+// vadPiece is one stretch of sound voice detection kept: where it is in the
+// video, and where it is on the clock of the sound Whisper was given, which
+// has the stretches without speech cut out. Times are in ms.
+type vadPiece struct {
+	vadStart, vadEnd   int64
+	origStart, origEnd int64
+}
+
+// timeMap is every piece voice detection kept, in order. It is empty when
+// whisper-cli did not say what it kept.
+type timeMap []vadPiece
+
+var vadLine = regexp.MustCompile(`vad_segment_info: orig_start: ([0-9.]+), orig_end: ([0-9.]+), vad_start: ([0-9.]+), vad_end: ([0-9.]+)`)
+
+// add reads one line of whisper-cli's log into the map when it tells a piece.
+func (m *timeMap) add(line string) {
+	f := vadLine.FindStringSubmatch(line)
+	if f == nil {
+		return
+	}
+	var v [4]int64
+	for i := range v {
+		x, err := strconv.ParseFloat(f[i+1], 64)
+		if err != nil {
+			return
+		}
+		v[i] = int64(x*1000 + 0.5)
+	}
+	if v[1] < v[0] || v[3] < v[2] {
+		return
+	}
+	*m = append(*m, vadPiece{origStart: v[0], origEnd: v[1], vadStart: v[2], vadEnd: v[3]})
+}
+
+func (p vadPiece) at(c int64) int64 {
+	return p.origStart + min(max(c-p.vadStart, 0), p.vadEnd-p.vadStart)
+}
+
+// orig is where a time on Whisper's clock is in the video. A time between two
+// pieces is the start of the later one. With an empty map a time is itself.
+func (m timeMap) orig(c int64) int64 {
+	if len(m) == 0 {
+		return c
+	}
+	for _, p := range m {
+		if c <= p.vadEnd {
+			return p.at(c)
+		}
+	}
+	return m[len(m)-1].origEnd
+}
+
+// span is where a word is in the video. A word belongs to one piece, the one
+// its middle is in, so a word at the edge of a stretch without speech is never
+// drawn across it.
+func (m timeMap) span(from, to int64) (int64, int64) {
+	if len(m) == 0 {
+		return from, to
+	}
+	mid := (from + to) / 2
+	p := m[len(m)-1]
+	for _, q := range m {
+		if mid <= q.vadEnd {
+			p = q
+			break
+		}
+	}
+	return p.at(from), p.at(to)
+}
+
 // segment is one stretch of the transcript as whisper-cli writes it. Its own
 // times are those of the video. Its words' times run on another clock when
-// voice detection cut the silence out, so only their distances are used.
+// voice detection cut the silence out: the time map says where each is in the
+// video, and without one only their distances are used.
 type segment struct {
 	Offsets struct {
 		From int64 `json:"from"`
@@ -330,8 +411,9 @@ type segment struct {
 }
 
 type word struct {
-	text     string
-	from, to int64 // from the segment's first word, in ms
+	text       string
+	from, to   int64 // from the segment's first word, in ms
+	cFrom, cTo int64 // on Whisper's own clock, in ms
 }
 
 // words joins the segment's word pieces into words, timed from its first.
@@ -349,10 +431,11 @@ func (g segment) words() []word {
 		if len(out) > 0 && !strings.HasPrefix(t.Text, " ") {
 			out[len(out)-1].text += t.Text
 			out[len(out)-1].to = max(out[len(out)-1].to, to)
+			out[len(out)-1].cTo = max(out[len(out)-1].cTo, t.Offsets.To)
 			continue
 		}
 		if text := strings.TrimSpace(t.Text); text != "" {
-			out = append(out, word{text, from, to})
+			out = append(out, word{text, from, to, t.Offsets.From, t.Offsets.To})
 		}
 	}
 	return out
@@ -362,13 +445,27 @@ func (g segment) words() []word {
 // segment short enough is one line. A segment that runs across a stretch with
 // no speech has a span far longer than its words: its lines keep the pace of
 // the words from where the segment starts, and are not spread over the silence.
-func (g segment) lines() []Cue {
+//
+// With a time map every word is placed where it is in the video, so the lines
+// of a segment that begins before a stretch without speech and is spoken
+// after it are shown after it.
+func (g segment) lines(m timeMap) []Cue {
 	text := strings.TrimSpace(g.Text)
 	from, to := g.Offsets.From, g.Offsets.To
 	if text == "" || to <= from {
 		return nil
 	}
 	ws := g.words()
+	if len(m) > 0 {
+		// The words' own places in the video replace their distances from the
+		// segment's start, and the segment's span no longer bounds them.
+		for i := range ws {
+			ws[i].from, ws[i].to = m.span(ws[i].cFrom, ws[i].cTo)
+		}
+		if len(ws) > 0 {
+			from, to = 0, max(to, ws[len(ws)-1].to)
+		}
+	}
 	short := to-from <= MaxLineMS && len([]rune(text)) <= MaxLineChars
 	broken := false
 	for _, w := range ws {
@@ -377,7 +474,7 @@ func (g segment) lines() []Cue {
 		broken = broken || strings.ContainsRune(w.text, '\uFFFD')
 	}
 	if short || len(ws) < 2 || broken {
-		return []Cue{{StartMS: from, EndMS: to, Text: text}}
+		return []Cue{{StartMS: g.Offsets.From, EndMS: g.Offsets.To, Text: text}}
 	}
 	var out []Cue
 	var cur []word

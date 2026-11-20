@@ -90,8 +90,23 @@ func main() {
 	// times run on another clock than the segment's own, as with voice
 	// detection on. FAKE_LONG=straddle makes the segment end 400 seconds
 	// after it starts, as when it runs across a stretch with no speech.
+	// FAKE_VAD: what voice detection kept, as whisper-cli says it in its log,
+	// one "orig_start,orig_end,vad_start,vad_end" in seconds per piece, joined
+	// by ";". The log is only written when -np is not given, as in the real one.
+	if v := os.Getenv("FAKE_VAD"); v != "" && !has("-np") {
+		for _, piece := range strings.Split(v, ";") {
+			f := strings.Split(piece, ",")
+			fmt.Fprintf(os.Stderr, "whisper_full_with_state: vad_segment_info: orig_start: %s, orig_end: %s, vad_start: %s, vad_end: %s\n", f[0], f[1], f[2], f[3])
+		}
+		fmt.Fprintln(os.Stderr, "whisper_print_timings:    total time = 1.00 ms")
+	}
+	// FAKE_TOKEN_BASE: where the long segment's words start on the words' clock, in ms.
+	tokenBase := int64(500000)
+	if v, err := strconv.ParseInt(os.Getenv("FAKE_TOKEN_BASE"), 10, 64); err == nil {
+		tokenBase = v
+	}
 	if long := os.Getenv("FAKE_LONG"); long != "" {
-		seg := cue{Offsets: map[string]int64{"from": 10000, "to": 34000}, Tokens: []token{{Text: "[_BEG_]", Offsets: map[string]int64{"from": 500000, "to": 500000}}}}
+		seg := cue{Offsets: map[string]int64{"from": 10000, "to": 34000}, Tokens: []token{{Text: "[_BEG_]", Offsets: map[string]int64{"from": tokenBase, "to": tokenBase}}}}
 		if long == "straddle" {
 			seg.Offsets["to"] = 410000
 		}
@@ -101,7 +116,7 @@ func main() {
 				w += "."
 			}
 			seg.Text += w
-			seg.Tokens = append(seg.Tokens, token{Text: w, Offsets: map[string]int64{"from": 500000 + i*2000, "to": 500000 + i*2000 + 2000}})
+			seg.Tokens = append(seg.Tokens, token{Text: w, Offsets: map[string]int64{"from": tokenBase + i*2000, "to": tokenBase + i*2000 + 2000}})
 		}
 		out.Transcription = append(out.Transcription, seg)
 	} else if os.Getenv("FAKE_EMPTY") == "" {
