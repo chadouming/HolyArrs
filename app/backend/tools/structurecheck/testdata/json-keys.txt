@@ -1141,7 +1141,6 @@ nodes
 nominations
 nonce
 noofslots
-noofslots_total
 not_media
 not_moved
 not_out_yet

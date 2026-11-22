@@ -104,3 +104,44 @@ func TestDownloadsViewFailedReplaced(t *testing.T) {
 		t.Fatalf("just failed: %+v", r)
 	}
 }
+
+// A Slot that went through several failed copies has one problem, not one
+// per copy: only its newest download counts, the older ones were replaced.
+func TestDownloadsViewOlderFailuresReplaced(t *testing.T) {
+	t.Parallel()
+	x := seed41(t, mediafiles.SlotNeedsADecision, "vanished")
+	exec41(t, x.s, `INSERT INTO downloads (created_at, created_by, updated_at, updated_by, downloader_id, release_id, slot_ids, external_id, state, started_by)
+		SELECT created_at, created_by, updated_at, updated_by, downloader_id, release_id, slot_ids, external_id || '-again', 'failed', started_by FROM downloads`)
+	owner := webserver.Caller{UserID: 1, Role: webserver.RoleOwner, Via: "session"}
+	r := viewAs(t, x, owner) // newest first
+	if len(r) != 2 || r[0].Phase != "failed" || r[1].Phase != "vanished" {
+		t.Fatalf("rows %+v", r)
+	}
+	if r[0].Replaced {
+		t.Fatalf("the newest failure is still the Slot's problem: %+v", r[0])
+	}
+	if !r[1].Replaced {
+		t.Fatalf("an older failure was replaced by the newer download: %+v", r[1])
+	}
+}
+
+// A download that was imported is done. When a later download for the same
+// Slot fails and the Slot waits for a decision, that is the later download's
+// problem: the imported one is not blocked.
+func TestDownloadsViewImportedStaysDoneAfterLaterFailure(t *testing.T) {
+	t.Parallel()
+	x := seed41(t, mediafiles.SlotNeedsADecision, "finished")
+	owner := webserver.Caller{UserID: 1, Role: webserver.RoleOwner, Via: "session"}
+	if r := viewAs(t, x, owner); len(r) != 1 || r[0].Phase != "needs_a_decision" {
+		t.Fatalf("its own import waits for a decision: %+v", r)
+	}
+	exec41(t, x.s, `INSERT INTO downloads (created_at, created_by, updated_at, updated_by, downloader_id, release_id, slot_ids, external_id, state, started_by)
+		SELECT created_at, created_by, updated_at, updated_by, downloader_id, release_id, slot_ids, external_id || '-again', 'vanished', started_by FROM downloads`)
+	r := viewAs(t, x, owner) // newest first
+	if len(r) != 2 || r[0].Phase != "vanished" || r[0].Replaced {
+		t.Fatalf("the later failure is the Slot's problem: %+v", r)
+	}
+	if r[1].Phase != "done" {
+		t.Fatalf("the imported download shows %q, want done", r[1].Phase)
+	}
+}

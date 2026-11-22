@@ -444,24 +444,21 @@ func (s *Sabnzbd) jobs(ctx context.Context, q url.Values) ([]Job, error) {
 		return nil, fmt.Errorf("sabnzbd queue: %w", err)
 	}
 	var out []Job
-	moving := 0
-	for _, x := range qu.Queue.Slots {
-		if sabQueueState(x.Status) == StateDownloading {
-			moving++
-		}
-	}
 	for _, x := range qu.Queue.Slots {
 		mb, left := num(x.MB), num(x.MBLeft)
 		p := num(x.Percentage) / 100
 		if mb > 0 {
 			p = (mb - left) / mb
 		}
-		j := Job{ID: x.ID, Name: x.Filename, Category: x.Cat, Size: int64(mb * 1024 * 1024), Progress: min(max(p, 0), 1),
-			ETA: clock(x.TimeLeft), State: sabQueueState(x.Status), Detail: x.Status, PostedAt: sabPostedAt(x.AvgAge, time.Now())}
-		if j.State == StateDownloading && moving > 0 {
-			j.Speed = int64(num(qu.Queue.KBPerSec)*1024) / int64(moving)
+		out = append(out, Job{ID: x.ID, Name: x.Filename, Category: x.Cat, Size: int64(mb * 1024 * 1024), Progress: min(max(p, 0), 1),
+			ETA: clock(x.TimeLeft), State: sabQueueState(x.Status), Detail: x.Status, PostedAt: sabPostedAt(x.AvgAge, time.Now())})
+	}
+	// Of the jobs asked for, the first is the one downloading.
+	sabTurns(out)
+	for i := range out {
+		if out[i].State == StateDownloading {
+			out[i].Speed = int64(num(qu.Queue.KBPerSec) * 1024)
 		}
-		out = append(out, j)
 	}
 	hq := url.Values{"start": {"0"}, "limit": {"200"}}
 	for _, k := range []string{"category", "nzo_ids"} {

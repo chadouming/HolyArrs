@@ -6,7 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -132,62 +132,6 @@ type DownloadRow struct {
 type DownloadTotals struct {
 	Speed   int64 `json:"speed"`
 	UpSpeed int64 `json:"up_speed"`
-}
-
-// EpisodeLine is one episode (or track) a download covers, with where its
-// Slot is. A track carries its disc in Season and its number in Episode.
-type EpisodeLine struct {
-	SlotID  int64  `json:"slot_id"`
-	Season  int    `json:"season"`
-	Episode int    `json:"episode"`
-	Label   string `json:"label"` // S01E02; a track: Track 02, Disc 2 track 03
-	Name    string `json:"name,omitempty"`
-	State   string `json:"state"`
-	Track   bool   `json:"track,omitempty"`
-}
-
-// episodeLines reads the episodes of a show download's Slots, in order.
-func episodeLines(ctx context.Context, db *sql.DB, slotIDs []int64) []EpisodeLine {
-	out := []EpisodeLine{}
-	for _, id := range slotIDs {
-		var e EpisodeLine
-		var season, episode sql.NullInt64
-		var name sql.NullString
-		var kind string
-		if db.QueryRowContext(ctx, `SELECT s.id, s.state, i.kind, CASE i.kind WHEN 'track' THEN COALESCE(json_extract(i.numbers, '$.disc'), 1) ELSE json_extract(i.numbers, '$.season') END,
-			CASE i.kind WHEN 'track' THEN json_extract(i.numbers, '$.track') ELSE json_extract(i.numbers, '$.episode') END, i.name
-			FROM slots s JOIN items i ON i.id = s.item_id WHERE s.id = ?`, id).Scan(&e.SlotID, &e.State, &kind, &season, &episode, &name) != nil {
-			continue
-		}
-		e.Season, e.Episode, e.Name = int(season.Int64), int(episode.Int64), name.String
-		labelLine(&e, kind)
-		out = append(out, e)
-	}
-	SortLines(out)
-	return out
-}
-
-// labelLine names an episode line: S01E02, or for a track Track 02 or
-// Disc 2 track 03.
-func labelLine(e *EpisodeLine, kind string) {
-	e.Label = fmt.Sprintf("S%02dE%02d", e.Season, e.Episode)
-	if kind == "track" {
-		e.Track = true
-		e.Label = fmt.Sprintf("Track %02d", e.Episode)
-		if e.Season > 1 {
-			e.Label = fmt.Sprintf("Disc %d track %02d", e.Season, e.Episode)
-		}
-	}
-}
-
-// SortLines puts episode lines in season and episode order.
-func SortLines(out []EpisodeLine) {
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Season != out[j].Season {
-			return out[i].Season < out[j].Season
-		}
-		return out[i].Episode < out[j].Episode
-	})
 }
 
 // Covers names the episodes in a short line: "S01E02 The Mill" for one,
@@ -389,6 +333,25 @@ func (a *Web) DownloadsView(w http.ResponseWriter, r *http.Request) {
 	}
 	gone, _ := mediafiles.GoneDownloads(ctx, db, endIDs)
 	slots := slotInfos(ctx, db, slotIDs)
+	// A Slot's problem belongs to its newest download only: its older failed
+	// copies were replaced by the download sent after them, and an older
+	// imported one is not blocked by what a later download did.
+	var endedSlots []int64
+	for _, d := range ds {
+		switch d.State {
+		case "failed", "vanished":
+			if len(d.SlotIDs) > 0 {
+				endedSlots = append(endedSlots, d.SlotIDs[0])
+			}
+		case "finished", "seeding":
+			for _, id := range d.SlotIDs {
+				if si, ok := slots[id]; ok && laterProblem(si.line.State) {
+					endedSlots = append(endedSlots, id)
+				}
+			}
+		}
+	}
+	newest := newestDownloads(ctx, db, endedSlots)
 	waits := ClearWaits(ctx, db)
 	rows := make([]DownloadRow, 0, len(ds))
 	shown := map[clientKey]bool{}
@@ -429,7 +392,17 @@ func (a *Web) DownloadsView(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// own is the Slot's state as far as this download goes.
+		own := func(slot int64, state string) string {
+			if laterProblem(state) && newest[slot] > d.ID {
+				return ""
+			}
+			return state
+		}
 		row.Phase = phase(d, row.SlotState)
+		if len(d.SlotIDs) > 0 {
+			row.Phase = phase(d, own(d.SlotIDs[0], row.SlotState))
+		}
 		// The save folder on the host is for people who manage the Library.
 		if !manage {
 			row.Path = ""
@@ -446,7 +419,11 @@ func (a *Web) DownloadsView(w http.ResponseWriter, r *http.Request) {
 		if row.Kind == "show" || row.Kind == "artist" {
 			row.Episodes = linesOf(d.SlotIDs, slots)
 			row.Covers = Covers(row.Episodes)
-			row.Phase = phaseOfMany(d, row.Episodes)
+			mine := slices.Clone(row.Episodes)
+			for i := range mine {
+				mine[i].State = own(mine[i].SlotID, mine[i].State)
+			}
+			row.Phase = phaseOfMany(d, mine)
 		}
 		if why, ok := refused[d.ID]; ok {
 			row.Phase, row.RefusedWhy = "import_refused", why
@@ -475,8 +452,9 @@ func (a *Web) DownloadsView(w http.ResponseWriter, r *http.Request) {
 			row.ClientLocked = true
 		}
 		row.CanImport = manage && ended && row.Phase == "waiting_to_import"
-		if (d.State == "failed" || d.State == "vanished") && row.SlotState != "" && row.SlotState != string(mediafiles.SlotFailed) && row.SlotState != string(mediafiles.SlotNeedsADecision) {
-			row.Replaced = true
+		if (d.State == "failed" || d.State == "vanished") && row.SlotState != "" {
+			movedOn := row.SlotState != string(mediafiles.SlotFailed) && row.SlotState != string(mediafiles.SlotNeedsADecision)
+			row.Replaced = movedOn || newest[d.SlotIDs[0]] > d.ID
 		}
 		if d.State == "cleaned" && d.StateReason != nil {
 			row.Text = upperFirst(*d.StateReason) + "."
@@ -777,6 +755,32 @@ func slotInfos(ctx context.Context, db *sql.DB, ids []int64) map[int64]slotInfo 
 			labelLine(&si.line, kind)
 			si.version, si.full = version.String, version.Valid
 			out[si.line.SlotID] = si
+		}
+	})
+	return out
+}
+
+// laterProblem says whether a Slot state is a problem that a later download
+// for the same Slot can have caused.
+func laterProblem(state string) bool {
+	return state == string(mediafiles.SlotNeedsADecision) || state == string(mediafiles.SlotRejected)
+}
+
+// newestDownloads is the newest download of each of these Slots, in one
+// pass over downloads per 500 Slots.
+func newestDownloads(ctx context.Context, db *sql.DB, slotIDs []int64) map[int64]int64 {
+	out := map[int64]int64{}
+	inChunks(slotIDs, func(part []any, marks string) {
+		rs, err := db.QueryContext(ctx, `SELECT j.value, max(d.id) FROM downloads d, json_each(d.slot_ids) j WHERE j.value IN (`+marks+`) GROUP BY j.value`, part...)
+		if err != nil {
+			return
+		}
+		defer rs.Close()
+		for rs.Next() {
+			var slot, id int64
+			if rs.Scan(&slot, &id) == nil {
+				out[slot] = id
+			}
 		}
 	})
 	return out

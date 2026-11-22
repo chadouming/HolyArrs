@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -155,19 +158,29 @@ func why(reason string) string {
 	return "ran_out"
 }
 
+// decisions lists the Slots that wait for a decision (one Slot when slotID
+// is set), newest first. The whole list costs a fixed number of reads however
+// long it is: the layout asks for it on every page, so a read per row made
+// every page slow in a large Library.
 func (a *Web) decisions(ctx context.Context, slotID int64) ([]DecisionView, error) {
-	q := `SELECT s.id, t.id, t.name, t.year, v.label, (SELECT count(*) FROM versions v2 WHERE v2.title_id = t.id),
-		COALESCE(s.last_reason, ''), s.file_id IS NOT NULL, s.updated_at,
-		(SELECT d.release_id FROM downloads d WHERE EXISTS (SELECT 1 FROM json_each(d.slot_ids) WHERE value = s.id) ORDER BY d.id DESC LIMIT 1),
-		t.kind, (SELECT d.id FROM downloads d WHERE EXISTS (SELECT 1 FROM json_each(d.slot_ids) WHERE value = s.id) ORDER BY d.id DESC LIMIT 1)
-		FROM slots s JOIN items i ON i.id = s.item_id JOIN titles t ON t.id = i.title_id JOIN versions v ON v.id = s.version_id
-		WHERE s.state = 'needs_a_decision' AND t.state != 'removed'`
-	args := []any{}
+	db := a.Store.Read()
+	only, args := "", []any{}
 	if slotID > 0 {
-		q += " AND s.id = ?"
-		args = append(args, slotID)
+		only = " AND s.id = ?"
+		args = append(args, slotID, slotID)
 	}
-	rows, err := a.Store.Read().QueryContext(ctx, q+" ORDER BY s.updated_at DESC, s.id DESC", args...)
+	// last is the newest download of each waiting Slot, found in one pass
+	// over downloads instead of one pass per Slot.
+	rows, err := db.QueryContext(ctx, `WITH nd AS (SELECT s.id FROM slots s WHERE s.state = 'needs_a_decision'`+only+`),
+		last AS (SELECT j.value AS slot_id, max(d.id) AS download_id FROM downloads d, json_each(d.slot_ids) j
+			WHERE j.value IN (SELECT id FROM nd) GROUP BY j.value)
+		SELECT s.id, t.id, t.name, t.year, v.label, (SELECT count(*) FROM versions v2 WHERE v2.title_id = t.id),
+		COALESCE(s.last_reason, ''), s.file_id IS NOT NULL, s.updated_at, ld.release_id, t.kind, last.download_id,
+		COALESCE(r.name, ''), COALESCE(p.name, '')
+		FROM slots s JOIN items i ON i.id = s.item_id JOIN titles t ON t.id = i.title_id JOIN versions v ON v.id = s.version_id
+		LEFT JOIN last ON last.slot_id = s.id LEFT JOIN downloads ld ON ld.id = last.download_id
+		LEFT JOIN releases r ON r.id = ld.release_id LEFT JOIN parts p ON p.id = i.part_id
+		WHERE s.state = 'needs_a_decision' AND t.state != 'removed'`+only+` ORDER BY s.updated_at DESC, s.id DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -176,8 +189,9 @@ func (a *Web) decisions(ctx context.Context, slotID int64) ([]DecisionView, erro
 	for rows.Next() {
 		var dv DecisionView
 		var year, rel, dl sql.NullInt64
-		var since string
-		if err := rows.Scan(&dv.SlotID, &dv.TitleID, &dv.Title, &year, &dv.Version, &dv.Versions, &dv.Reason, &dv.HasCopy, &since, &rel, &dv.Kind, &dl); err != nil {
+		var since, album string
+		if err := rows.Scan(&dv.SlotID, &dv.TitleID, &dv.Title, &year, &dv.Version, &dv.Versions, &dv.Reason, &dv.HasCopy, &since, &rel, &dv.Kind, &dl,
+			&dv.ReleaseName, &album); err != nil {
 			return nil, err
 		}
 		if dl.Valid {
@@ -190,6 +204,9 @@ func (a *Web) decisions(ctx context.Context, slotID int64) ([]DecisionView, erro
 		if rel.Valid {
 			dv.ReleaseID = &rel.Int64
 		}
+		if dv.Kind == "artist" {
+			dv.Album = album
+		}
 		dv.Since, _ = time.Parse(database.TimeLayout, since)
 		dv.Why = why(dv.Reason)
 		out = append(out, dv)
@@ -197,19 +214,37 @@ func (a *Web) decisions(ctx context.Context, slotID int64) ([]DecisionView, erro
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// The downloads and the episode lines of every row are read together.
+	var dlIDs []int64
 	for i := range out {
-		if out[i].Kind == "artist" {
-			_ = a.Store.Read().QueryRowContext(ctx, `SELECT p.name FROM slots s JOIN items i ON i.id = s.item_id JOIN parts p ON p.id = i.part_id
-				WHERE s.id = ?`, out[i].SlotID).Scan(&out[i].Album)
+		if out[i].DownloadID != nil {
+			dlIDs = append(dlIDs, *out[i].DownloadID)
 		}
+	}
+	dls := downloadsByID(ctx, db, dlIDs)
+	var lineIDs []int64
+	for i := range out {
+		if out[i].Kind != "show" && out[i].Kind != "artist" {
+			continue
+		}
+		lineIDs = append(lineIDs, out[i].SlotID)
+		if out[i].DownloadID != nil {
+			if d, ok := dls[*out[i].DownloadID]; ok && len(d.SlotIDs) > 1 {
+				lineIDs = append(lineIDs, d.SlotIDs...)
+			}
+		}
+	}
+	lines := episodeLineMap(ctx, db, lineIDs)
+	type review struct{ file, folder string }
+	reviews := map[int64]*review{} // one disk check per download, not per Slot
+	for i := range out {
 		if out[i].Kind == "show" || out[i].Kind == "artist" {
-			if eps := episodeLines(ctx, a.Store.Read(), []int64{out[i].SlotID}); len(eps) == 1 {
-				out[i].Episode = &eps[0]
+			if e, ok := lines[out[i].SlotID]; ok {
+				out[i].Episode = &e
 			}
 			if out[i].DownloadID != nil {
-				var d domain.Download
-				if database.Get(ctx, a.Store.Read(), "downloads", *out[i].DownloadID, &d) == nil && len(d.SlotIDs) > 1 {
-					out[i].Pack = episodeLines(ctx, a.Store.Read(), d.SlotIDs)
+				if d, ok := dls[*out[i].DownloadID]; ok && len(d.SlotIDs) > 1 {
+					out[i].Pack = pickLines(lines, d.SlotIDs)
 					for _, e := range out[i].Pack {
 						if e.State == string(mediafiles.SlotNeedsADecision) {
 							out[i].PackSlotIDs = append(out[i].PackSlotIDs, e.SlotID)
@@ -218,16 +253,25 @@ func (a *Web) decisions(ctx context.Context, slotID int64) ([]DecisionView, erro
 				}
 			}
 		}
-		if out[i].ReleaseID != nil {
-			_ = a.Store.Read().QueryRowContext(ctx, "SELECT name FROM releases WHERE id = ?", *out[i].ReleaseID).Scan(&out[i].ReleaseName)
-		}
-		if out[i].Kind == "movie" && out[i].DownloadID != nil {
-			if f := a.importer().ReviewFile(ctx, *out[i].DownloadID); f != "" {
-				out[i].ImportFile = filepath.Base(f)
-			}
-		}
+		// Only a finished download has files to review; the importer checks the
+		// same, so the others are not asked at all.
 		if out[i].DownloadID != nil {
-			out[i].ImportFolder = a.importer().ReviewFolder(ctx, *out[i].DownloadID)
+			if d, ok := dls[*out[i].DownloadID]; ok && (d.State == "finished" || d.State == "seeding") {
+				rv := reviews[d.ID]
+				if rv == nil {
+					rv = &review{folder: a.importer().ReviewFolder(ctx, d.ID)}
+					if out[i].Kind == "movie" {
+						if f := a.importer().ReviewFile(ctx, d.ID); f != "" {
+							rv.file = filepath.Base(f)
+						}
+					}
+					reviews[d.ID] = rv
+				}
+				out[i].ImportFolder = rv.folder
+				if out[i].Kind == "movie" {
+					out[i].ImportFile = rv.file
+				}
+			}
 			out[i].Reading = a.Manager().Rereading(*out[i].DownloadID)
 		}
 		if out[i].Reason != "" {
@@ -235,6 +279,26 @@ func (a *Web) decisions(ctx context.Context, slotID int64) ([]DecisionView, erro
 		}
 	}
 	return out, nil
+}
+
+// downloadsByID reads the downloads with these ids in a few reads; one that
+// cannot be read is left out.
+func downloadsByID(ctx context.Context, db *sql.DB, ids []int64) map[int64]domain.Download {
+	out := map[int64]domain.Download{}
+	for chunk := range slices.Chunk(ids, 500) {
+		marks, args := strings.Repeat(",?", len(chunk))[1:], make([]any, len(chunk))
+		for i, id := range chunk {
+			args[i] = id
+		}
+		ds, err := database.Select[domain.Download](ctx, db, "downloads", "id IN ("+marks+")", args...)
+		if err != nil {
+			continue
+		}
+		for _, d := range ds {
+			out[d.ID] = d
+		}
+	}
+	return out
 }
 
 func (a *Web) needsDecision(w http.ResponseWriter, r *http.Request) {
@@ -461,4 +525,89 @@ func (a *Web) importReviewFile(w http.ResponseWriter, r *http.Request, dv Decisi
 // its Downloader at once, and answers how many still wait.
 func (a *Web) clearNow(w http.ResponseWriter, r *http.Request) {
 	webserver.WriteJSON(w, http.StatusOK, map[string]int{"left": a.Manager().ClearNow(r.Context())})
+}
+
+// EpisodeLine is one episode (or track) a download covers, with where its
+// Slot is. A track carries its disc in Season and its number in Episode.
+type EpisodeLine struct {
+	SlotID  int64  `json:"slot_id"`
+	Season  int    `json:"season"`
+	Episode int    `json:"episode"`
+	Label   string `json:"label"` // S01E02; a track: Track 02, Disc 2 track 03
+	Name    string `json:"name,omitempty"`
+	State   string `json:"state"`
+	Track   bool   `json:"track,omitempty"`
+}
+
+// episodeLines reads the episodes of a show download's Slots, in order.
+func episodeLines(ctx context.Context, db *sql.DB, slotIDs []int64) []EpisodeLine {
+	return pickLines(episodeLineMap(ctx, db, slotIDs), slotIDs)
+}
+
+// pickLines picks the lines of these Slots, in season and episode order; a
+// Slot with no line is left out.
+func pickLines(lines map[int64]EpisodeLine, slotIDs []int64) []EpisodeLine {
+	out := []EpisodeLine{}
+	for _, id := range slotIDs {
+		if e, ok := lines[id]; ok {
+			out = append(out, e)
+		}
+	}
+	SortLines(out)
+	return out
+}
+
+// episodeLineMap reads the episode (or track) line of each Slot in a few
+// reads, however many Slots there are.
+func episodeLineMap(ctx context.Context, db *sql.DB, slotIDs []int64) map[int64]EpisodeLine {
+	out := map[int64]EpisodeLine{}
+	for chunk := range slices.Chunk(slotIDs, 500) {
+		marks, args := strings.Repeat(",?", len(chunk))[1:], make([]any, len(chunk))
+		for i, id := range chunk {
+			args[i] = id
+		}
+		rows, err := db.QueryContext(ctx, `SELECT s.id, s.state, i.kind, CASE i.kind WHEN 'track' THEN COALESCE(json_extract(i.numbers, '$.disc'), 1) ELSE json_extract(i.numbers, '$.season') END,
+			CASE i.kind WHEN 'track' THEN json_extract(i.numbers, '$.track') ELSE json_extract(i.numbers, '$.episode') END, i.name
+			FROM slots s JOIN items i ON i.id = s.item_id WHERE s.id IN (`+marks+`)`, args...)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var e EpisodeLine
+			var season, episode sql.NullInt64
+			var name sql.NullString
+			var kind string
+			if rows.Scan(&e.SlotID, &e.State, &kind, &season, &episode, &name) != nil {
+				continue
+			}
+			e.Season, e.Episode, e.Name = int(season.Int64), int(episode.Int64), name.String
+			labelLine(&e, kind)
+			out[e.SlotID] = e
+		}
+		_ = rows.Close()
+	}
+	return out
+}
+
+// labelLine names an episode line: S01E02, or for a track Track 02 or
+// Disc 2 track 03.
+func labelLine(e *EpisodeLine, kind string) {
+	e.Label = fmt.Sprintf("S%02dE%02d", e.Season, e.Episode)
+	if kind == "track" {
+		e.Track = true
+		e.Label = fmt.Sprintf("Track %02d", e.Episode)
+		if e.Season > 1 {
+			e.Label = fmt.Sprintf("Disc %d track %02d", e.Season, e.Episode)
+		}
+	}
+}
+
+// SortLines puts episode lines in season and episode order.
+func SortLines(out []EpisodeLine) {
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Season != out[j].Season {
+			return out[i].Season < out[j].Season
+		}
+		return out[i].Episode < out[j].Episode
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -17,6 +18,11 @@ const (
 	sabPage    = 200
 	sabMaxRows = 5000
 )
+
+// ErrQueueTooLong is a SABnzbd queue with more jobs than HolyArrs follows.
+// It is an error, never a short list: a job left off the list would be taken
+// as removed from the Downloader.
+var ErrQueueTooLong = errors.New("the Downloader's queue is too long to follow")
 
 var tagRe = regexp.MustCompile(`<[^>]*>`)
 
@@ -86,8 +92,10 @@ type sabQueueFull struct {
 		TimeLeft   string `json:"timeleft"`
 		DiskSpace1 string `json:"diskspace1"`
 		DiskSpace2 string `json:"diskspace2"`
-		Total      int    `json:"noofslots_total"`
-		Slots      []struct {
+		// noofslots is every job in the queue. SABnzbd's noofslots_total
+		// leaves out the jobs paused one by one, so it is not the end.
+		Total int `json:"noofslots"`
+		Slots []struct {
 			Index      int    `json:"index"`
 			ID         string `json:"nzo_id"`
 			Filename   string `json:"filename"`
@@ -108,7 +116,10 @@ func (s *Sabnzbd) Queue(ctx context.Context) (QueuePage, error) {
 	var p QueuePage
 	var raw []Job
 	speed := int64(0)
-	for start := 0; start < sabMaxRows; start += sabPage {
+	for start := 0; ; start += sabPage {
+		if start >= sabMaxRows {
+			return QueuePage{}, fmt.Errorf("%w: SABnzbd has more than %d jobs queued", ErrQueueTooLong, sabMaxRows)
+		}
 		b, err := s.call(ctx, "queue", url.Values{"start": {strconv.Itoa(start)}, "limit": {strconv.Itoa(sabPage)}}, true)
 		if err != nil {
 			return QueuePage{}, err
@@ -134,23 +145,37 @@ func (s *Sabnzbd) Queue(ctx context.Context) (QueuePage, error) {
 			raw = append(raw, Job{ID: x.ID, Name: x.Filename, Category: x.Cat, Size: int64(mb * 1024 * 1024), Progress: min(max(pr, 0), 1),
 				ETA: clock(x.TimeLeft), State: sabQueueState(x.Status), Detail: x.Status, AddedAt: x.TimeAdded, QueuePos: pos, PostedAt: sabPostedAt(x.AvgAge, time.Now())})
 		}
-		if len(qu.Queue.Slots) < sabPage || start+len(qu.Queue.Slots) >= qu.Queue.Total {
+		// A short page is the end. The count ends it one call sooner; a
+		// SABnzbd that gives none is read until a short page.
+		if len(qu.Queue.Slots) < sabPage || (qu.Queue.Total > 0 && start+len(qu.Queue.Slots) >= qu.Queue.Total) {
 			break
 		}
 	}
-	moving := 0
-	for _, j := range raw {
-		if j.State == StateDownloading {
-			moving++
-		}
-	}
+	sabTurns(raw)
 	for i := range raw {
-		if raw[i].State == StateDownloading && moving > 0 {
-			raw[i].Speed = speed / int64(moving)
+		if raw[i].State == StateDownloading {
+			raw[i].Speed = speed
 		}
 	}
 	p.Jobs = raw
 	return p, nil
+}
+
+// sabTurns marks the jobs that wait their turn. SABnzbd calls every job it
+// has not paused Downloading while the queue runs, but it works from the top:
+// the first is downloading and the ones behind it wait, however long the
+// queue is, so they are queued and never stalled.
+func sabTurns(jobs []Job) {
+	first := true
+	for i := range jobs {
+		if jobs[i].State != StateDownloading {
+			continue
+		}
+		if !first {
+			jobs[i].State, jobs[i].Detail = StateQueued, "Queued"
+		}
+		first = false
+	}
 }
 
 // JobStages returns the processing stages of a job.

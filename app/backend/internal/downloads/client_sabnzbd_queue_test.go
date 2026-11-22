@@ -2,6 +2,7 @@ package downloads
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -47,6 +48,30 @@ func TestSabQueueReadsEveryPage(t *testing.T) {
 	}
 	if total > 2048*1024 || total < 2048*1024-450 {
 		t.Fatalf("shared speed sums to %d", total)
+	}
+}
+
+// Paused jobs are left out of SABnzbd's noofslots_total, so it is never the
+// end of the queue: a job past the first page is still read.
+func TestSabQueueReadsPastPausedJobs(t *testing.T) {
+	f := &sabPaged{queue: 450}
+	s := NewSabnzbd(f.serve(t), sabKey, nil)
+	p, err := s.Queue(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Jobs) != 450 || p.Jobs[449].ID != "SABnzbd_nzo_q449" {
+		t.Fatalf("%d jobs, want 450 with the last one read", len(p.Jobs))
+	}
+}
+
+// A queue longer than HolyArrs follows is an error, never a short list: a
+// job left off a short list would be taken as removed.
+func TestSabQueueTooLongIsAnError(t *testing.T) {
+	f := &sabPaged{queue: sabMaxRows + 1}
+	s := NewSabnzbd(f.serve(t), sabKey, nil)
+	if _, err := s.Queue(context.Background()); !errors.Is(err, ErrQueueTooLong) {
+		t.Fatalf("err %v, want ErrQueueTooLong", err)
 	}
 }
 
@@ -170,7 +195,15 @@ func (f *sabPaged) serve(t *testing.T) string {
 				}
 				slots = append(slots, fmt.Sprintf(`{"index":%d,"nzo_id":"SABnzbd_nzo_q%d","filename":"Show.S01E%02d.1080p","cat":"tv","mb":"100","mbleft":"50","percentage":"50","status":"%s","timeleft":"0:01:00","time_added":%d}`, i, i, i+1, st, 1700000000+i))
 			}
-			fmt.Fprintf(w, `{"queue":{"paused":false,"kbpersec":"2048","timeleft":"1:00:00","diskspace1":"10","diskspace2":"4","noofslots_total":%d,"slots":[%s]}}`, f.queue, strings.Join(slots, ","))
+			// As SABnzbd counts: noofslots is every job, noofslots_total leaves
+			// out the jobs that are paused one by one.
+			unpaused := 0
+			for i := 0; i < f.queue; i++ {
+				if i%3 != 1 {
+					unpaused++
+				}
+			}
+			fmt.Fprintf(w, `{"queue":{"paused":false,"kbpersec":"2048","timeleft":"1:00:00","diskspace1":"10","diskspace2":"4","noofslots":%d,"noofslots_total":%d,"slots":[%s]}}`, f.queue, unpaused, strings.Join(slots, ","))
 		case "history":
 			if ids := q.Get("nzo_ids"); ids != "" {
 				fmt.Fprintf(w, `{"history":{"noofslots":1,"last_history_update":%d,"slots":[{"nzo_id":%q,"name":"Movie.2024","status":"Completed","bytes":10,"stage_log":[{"name":"Source","actions":["https://indexer.example/get?apikey=SECRETKEY123&id=1"]},{"name":"Servers","actions":["news.example=1.2 GB"]},{"name":"Repair","actions":["[Movie] Verified in 2 seconds, all files correct"]},{"name":"Unpack","actions":["[Movie] Unpacked 1 files/folders in 3 seconds<br/>"]},{"name":"Script","actions":["done.py: ok"]}]}]}}`, f.counter, ids)
@@ -211,4 +244,28 @@ func (f *sabPaged) serve(t *testing.T) string {
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL
+}
+
+// SABnzbd calls every job it has not paused Downloading, but only the first
+// is: the ones behind it wait their turn, so they are queued (and never
+// stalled), and the whole speed is the first job's.
+func TestSabQueueJobsBehindTheFirstAreQueued(t *testing.T) {
+	f := &sabPaged{queue: 6}
+	s := NewSabnzbd(f.serve(t), sabKey, nil)
+	p, err := s.Queue(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{StateDownloading, StatePaused, StateQueued, StateQueued, StatePaused, StateQueued}
+	for i, j := range p.Jobs {
+		if j.State != want[i] {
+			t.Fatalf("job %d is %s, want %s", i, j.State, want[i])
+		}
+		if (j.Speed > 0) != (i == 0) {
+			t.Fatalf("job %d has speed %d: only the first job downloads", i, j.Speed)
+		}
+	}
+	if p.Jobs[0].Speed != 2048*1024 {
+		t.Fatalf("speed %d, want the whole queue's", p.Jobs[0].Speed)
+	}
 }

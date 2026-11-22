@@ -349,3 +349,163 @@ func TestReadFinishedWithNoRootNeverReadsTheDisk(t *testing.T) {
 		t.Fatalf("read the disk with no root set up: %+v", files)
 	}
 }
+
+// A stalled download that is then paused or put back in the queue is no
+// problem any more: the stall reason goes and its Slot is downloading again.
+func TestPausedOrQueuedAfterStalledIsNoProblem(t *testing.T) {
+	for _, c := range []struct{ client, want string }{{"pausedDL", "paused"}, {"queuedDL", "queued"}} {
+		t.Run(c.want, func(t *testing.T) {
+			w, m := setup(t)
+			id := grabbed(t, w, m)
+			ctx := context.Background()
+			w.clock = w.clock.Add(11 * time.Minute)
+			_, _ = m.SyncOnce(ctx)
+			if d := w.download(t, id); d.State != "stalled" {
+				t.Fatalf("want stalled first, got %s", d.State)
+			}
+			w.fake.set(hash, map[string]any{"state": c.client})
+			_, _ = m.SyncOnce(ctx)
+			d := w.download(t, id)
+			if d.State != c.want || d.StateReason != nil {
+				t.Fatalf("got %s with reason %v, want %s with none", d.State, d.StateReason, c.want)
+			}
+			if sl := w.slot(t); sl.State != mediafiles.SlotDownloading {
+				t.Fatalf("slot %s, want downloading", sl.State)
+			}
+		})
+	}
+}
+
+// A download that makes no progress keeps its row: the speed and the time
+// left a Downloader gives for a job waiting in a long queue change on every
+// sync, and writing each of them made every other read and write wait.
+func TestNoProgressSpeedAndTimeLeftAreNotWritten(t *testing.T) {
+	w, m := setup(t)
+	id := grabbed(t, w, m)
+	ctx := context.Background()
+	w.fake.set(hash, map[string]any{"state": "downloading", "progress": 0.2, "dlspeed": 9000, "eta": 5000})
+	_, _ = m.SyncOnce(ctx)
+	before := w.download(t, id)
+	if before.Speed != 9000 {
+		t.Fatalf("speed %d, want the first reading written", before.Speed)
+	}
+	w.clock = w.clock.Add(time.Minute)
+	w.fake.set(hash, map[string]any{"dlspeed": 9100, "eta": 4900})
+	_, _ = m.SyncOnce(ctx)
+	if d := w.download(t, id); !d.UpdatedAt.Equal(before.UpdatedAt) || d.Speed != 9000 {
+		t.Fatalf("row written again for speed and time left alone: speed %d, updated %s (was %s)", d.Speed, d.UpdatedAt, before.UpdatedAt)
+	}
+	// Progress is news, and the speed and time left go with it.
+	w.fake.set(hash, map[string]any{"progress": 0.3, "dlspeed": 9200, "eta": 4800})
+	_, _ = m.SyncOnce(ctx)
+	if d := w.download(t, id); d.Progress != 0.3 || d.Speed != 9200 {
+		t.Fatalf("progress %v speed %d, want 0.3 and 9200", d.Progress, d.Speed)
+	}
+	// So is a speed that stops.
+	w.fake.set(hash, map[string]any{"dlspeed": 0, "eta": 8640000})
+	_, _ = m.SyncOnce(ctx)
+	if d := w.download(t, id); d.Speed != 0 {
+		t.Fatalf("speed %d, want 0 once the download stops moving", d.Speed)
+	}
+}
+
+// A download taken as removed while its Downloader still has it comes back:
+// it goes on, its Slot is downloading for it again and its Release is chosen.
+func TestVanishedFoundAgainComesBack(t *testing.T) {
+	for _, replace := range []string{"true", "false"} {
+		t.Run("replace "+replace, func(t *testing.T) {
+			w, m := setup(t)
+			w.setting(t, SettingReplaceVanished, replace)
+			id := grabbed(t, w, m)
+			ctx := context.Background()
+			w.fake.drop(hash)
+			for range missedSyncs {
+				w.advance(missWindow)
+				_, _ = m.SyncOnce(ctx)
+			}
+			if d := w.download(t, id); d.State != "vanished" {
+				t.Fatalf("download %s, want vanished first", d.State)
+			}
+			// Still gone: nothing comes back.
+			m.vanishedBack(ctx)
+			if d := w.download(t, id); d.State != "vanished" {
+				t.Fatalf("download %s while the Downloader does not have it", d.State)
+			}
+			w.fake.set(hash, map[string]any{"name": "Dune.Part.Two.2024.1080p.WEB.H264-HOLYARRS", "category": "holyarrs", "state": "downloading", "progress": 0.4})
+			m.vanishedBack(ctx)
+			d := w.download(t, id)
+			if d.State != "downloading" || d.StateReason != nil {
+				t.Fatalf("download %s with reason %v, want downloading with none", d.State, d.StateReason)
+			}
+			sl := w.slot(t)
+			if sl.State != mediafiles.SlotDownloading || sl.ActiveDownloadID == nil || *sl.ActiveDownloadID != id {
+				t.Fatalf("slot %s for download %v, want downloading for %d", sl.State, sl.ActiveDownloadID, id)
+			}
+			if r := w.release(t); r.State != "chosen" {
+				t.Fatalf("release %s, want chosen", r.State)
+			}
+			_, _ = m.SyncOnce(ctx)
+			if d := w.download(t, id); d.State != "downloading" || d.Progress != 0.4 {
+				t.Fatalf("after a sync: %s at %v", d.State, d.Progress)
+			}
+		})
+	}
+}
+
+// A Slot that another download holds stays with it: the copy found again
+// is left as it was.
+func TestVanishedFoundAgainLeavesATakenSlot(t *testing.T) {
+	w, m := setup(t)
+	id := grabbed(t, w, m)
+	ctx := context.Background()
+	w.fake.drop(hash)
+	for range missedSyncs {
+		w.advance(missWindow)
+		_, _ = m.SyncOnce(ctx)
+	}
+	other := w.oldRow(t, w.download(t, id).DownloaderID, "other", "downloading")
+	w.exec(t, "UPDATE slots SET state = 'downloading', active_download_id = ? WHERE id = ?", other, w.slot(t).ID)
+	w.fake.set(hash, map[string]any{"name": "Dune.Part.Two.2024.1080p.WEB.H264-HOLYARRS", "category": "holyarrs", "state": "downloading"})
+	m.vanishedBack(ctx)
+	if d := w.download(t, id); d.State != "vanished" {
+		t.Fatalf("download %s, want it left vanished", d.State)
+	}
+	if sl := w.slot(t); sl.ActiveDownloadID == nil || *sl.ActiveDownloadID != other {
+		t.Fatalf("slot moved to %v, want it left with %d", sl.ActiveDownloadID, other)
+	}
+}
+
+// A Release someone turned down after its download vanished stays turned
+// down: the copy the Downloader still has does not bring it back.
+func TestVanishedFoundAgainLeavesATurnedDownRelease(t *testing.T) {
+	for _, replace := range []string{"true", "false"} {
+		t.Run("replace "+replace, func(t *testing.T) {
+			w, m := setup(t)
+			w.setting(t, SettingReplaceVanished, replace)
+			id := grabbed(t, w, m)
+			ctx := context.Background()
+			w.fake.drop(hash)
+			for range missedSyncs {
+				w.advance(missWindow)
+				_, _ = m.SyncOnce(ctx)
+			}
+			if d := w.download(t, id); d.State != "vanished" {
+				t.Fatalf("download %s, want vanished first", d.State)
+			}
+			w.exec(t, `UPDATE releases SET state = 'turned_down', verdict = json_set(COALESCE(verdict, '{}'), '$.turned_down_reason', 'turned down by Ada on Needs a decision')
+				WHERE id = ?`, w.release(t).ID)
+			before := w.slot(t).State
+			w.fake.set(hash, map[string]any{"name": "Dune.Part.Two.2024.1080p.WEB.H264-HOLYARRS", "category": "holyarrs", "state": "downloading", "progress": 0.4})
+			m.vanishedBack(ctx)
+			if d := w.download(t, id); d.State != "vanished" {
+				t.Fatalf("download %s, want it left vanished", d.State)
+			}
+			if r := w.release(t); r.State != "turned_down" {
+				t.Fatalf("release %s, want it left turned down", r.State)
+			}
+			if sl := w.slot(t); sl.State != before {
+				t.Fatalf("slot %s, want it left %s", sl.State, before)
+			}
+		})
+	}
+}

@@ -185,6 +185,7 @@ func (m *Manager) Run(ctx context.Context) {
 			m.tidy(ctx)
 			m.settleAttempts(ctx)
 			m.settleLostChoices(ctx)
+			m.vanishedBack(ctx)
 			checked = time.Now()
 		}
 		n, _ := m.SyncOnce(ctx)
@@ -257,7 +258,7 @@ func (m *Manager) apply(ctx context.Context, dr domain.Downloader, d domain.Down
 	case !found:
 		m.seen(d.ID)
 		next.State = "vanished"
-		next.StateReason = strPtr("removed outside HolyArrs: the Downloader no longer has it")
+		next.StateReason = strPtr(vanishedReason)
 	case st.failDangerous && j.State != StateFailed && len(fakeFiles(j.Files, dr.Protocol)) > 0:
 		// Known as soon as the Downloader lists the files, so a fake is not downloaded
 		// to the end.
@@ -292,11 +293,16 @@ func (m *Manager) apply(ctx context.Context, dr domain.Downloader, d domain.Down
 		switch {
 		case j.State == StateQueued:
 			next.State = "queued"
+			// Waiting its turn is no stall: an old stall reason goes.
+			if stallReason(d.StateReason) {
+				next.StateReason = nil
+			}
 		case j.State == StatePaused:
 			next.State = "paused"
 			if cantUseFiles(j) {
 				next.StateReason = strPtr(WaitingReason + " (" + j.Detail + "): " + WaitingHint)
-			} else if d.StateReason != nil && strings.HasPrefix(*d.StateReason, WaitingReason) {
+			} else if d.StateReason != nil && (strings.HasPrefix(*d.StateReason, WaitingReason) || stallReason(d.StateReason)) {
+				// Paused is no stall either, so an old stall reason goes too.
 				next.StateReason = nil
 			}
 		case next.Progress >= 1:
@@ -344,9 +350,14 @@ func (m *Manager) apply(ctx context.Context, dr domain.Downloader, d domain.Down
 			m.event(ctx, &next, "download_shortcut", "Web shortcut in the download, left alone: "+strings.Join(sc, ", "))
 		}
 	}
-	changed := next.State != d.State || next.Progress != d.Progress || next.Speed != d.Speed || next.UpSpeed != d.UpSpeed || next.Seeds != d.Seeds || next.Peers != d.Peers || !eqTime(next.ProgressAt, d.ProgressAt) ||
-		!eqPtr(next.ETA, d.ETA) || !eqStr(next.StateReason, d.StateReason) || next.SavePath != d.SavePath || len(next.FilesSeen) != len(d.FilesSeen)
-	if !changed {
+	changed := next.State != d.State || next.Progress != d.Progress || next.UpSpeed != d.UpSpeed || next.Seeds != d.Seeds || next.Peers != d.Peers || !eqTime(next.ProgressAt, d.ProgressAt) ||
+		!eqStr(next.StateReason, d.StateReason) || next.SavePath != d.SavePath || len(next.FilesSeen) != len(d.FilesSeen)
+	// The speed and the time left of a download at the same mark are no news
+	// alone: a Downloader gives new ones on every sync for each job waiting in
+	// a long queue, and a write per job per sync holds every other write up.
+	// A speed that starts or stops is written, and both go with any other change.
+	moving := (next.Speed > 0) != (d.Speed > 0) || (next.ETA == nil) != (d.ETA == nil)
+	if !changed && !moving {
 		return isActive(next.State)
 	}
 	// The write holds only while the row is still in the state this snapshot read.
@@ -367,8 +378,33 @@ func (m *Manager) apply(ctx context.Context, dr domain.Downloader, d domain.Down
 	m.publish("download", next)
 	if next.State != d.State {
 		m.stateMoved(ctx, d.State, &next)
+	} else if stallReason(d.StateReason) && next.StateReason == nil {
+		// Already paused or queued with a stall left over from before.
+		m.unstallSlots(ctx, &next)
 	}
 	return isActive(next.State)
+}
+
+// stallReason says whether a download's reason is the stall timer's.
+func stallReason(r *string) bool {
+	return r != nil && strings.HasPrefix(*r, "no progress for ")
+}
+
+// unstallSlots puts the Slots that d stalled back to downloading.
+func (m *Manager) unstallSlots(ctx context.Context, d *domain.Download) {
+	for _, sid := range d.SlotIDs {
+		var state string
+		var active sql.NullInt64
+		if err := m.Store.Read().QueryRowContext(ctx, "SELECT state, active_download_id FROM slots WHERE id = ?", sid).Scan(&state, &active); err != nil {
+			continue
+		}
+		if state != string(mediafiles.SlotStalled) || !active.Valid || active.Int64 != d.ID {
+			continue
+		}
+		if err := mediafiles.MoveSlot(ctx, m.Store, sid, mediafiles.SlotDownloading, "", domain.System); err == nil {
+			m.publish("slot", map[string]any{"id": sid, "state": mediafiles.SlotDownloading, "reason": ""})
+		}
+	}
 }
 
 func hours(d time.Duration) string {
@@ -397,6 +433,14 @@ func (m *Manager) stateMoved(ctx context.Context, from string, d *domain.Downloa
 		// download again, so the import finds them.
 		if from == "stalled" {
 			to = mediafiles.SlotDownloading
+		}
+	}
+	if from != "stalled" || d.State == "queued" || d.State == "paused" {
+		// Paused or waiting its turn is no stall, and a Slot left stalled by an
+		// earlier pause goes back with its download.
+		switch d.State {
+		case "downloading", "finished", "queued", "paused":
+			m.unstallSlots(ctx, d)
 		}
 	}
 	for _, sid := range d.SlotIDs {
