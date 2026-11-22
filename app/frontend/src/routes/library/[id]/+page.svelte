@@ -743,7 +743,7 @@
 	.rel-name { font-size: var(--text-sm); overflow-wrap: anywhere; min-width: 0; }
 	.reasons { margin-top: var(--s-2); font-size: var(--text-xs); color: var(--text-muted); }
 	.reasons li { padding: 2px 0 2px var(--s-3); border-left: 2px solid var(--line-strong); }
-	.reasons li.fail { border-left-color: var(--fail); }
+	.reasons li.fail, .reasons li.subtract { border-left-color: var(--fail); }
 	.reasons li.hold, .reasons li.warn { border-left-color: var(--wait); }
 	.rel-actions { margin-top: var(--s-2); gap: var(--s-2); }
 	.pager { justify-content: space-between; margin-top: var(--s-3); }

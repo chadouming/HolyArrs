@@ -145,8 +145,14 @@
 		return out;
 	}
 	// Lower weight shows first, so blockers come before ranking notes.
-	const weight: Record<string, number> = { fail: 0, hold: 1, rank: 2, warn: 3 };
-	const deciding = (r: ReleaseView) => keyReasons(r.reasons).sort((x, y) => (weight[x.effect] ?? 9) - (weight[y.effect] ?? 9)).slice(0, 2);
+	// A rule that took points belongs with the "too few points" line, so it comes right after the blockers.
+	const weight: Record<string, number> = { fail: 0, subtract: 1, hold: 2, rank: 3, warn: 4 };
+	// Two lines, and up to two more for the rules that took the points.
+	const deciding = (r: ReleaseView) => {
+		const key = keyReasons(r.reasons).sort((x, y) => (weight[x.effect] ?? 9) - (weight[y.effect] ?? 9));
+		const took = key.filter((x) => x.effect === 'subtract').slice(0, 2);
+		return [...key.filter((x) => x.effect !== 'subtract').slice(0, 2), ...took].sort((x, y) => (weight[x.effect] ?? 9) - (weight[y.effect] ?? 9));
+	};
 </script>
 
 <Sheet bind:open title={t('mediafiles.releaseSheet.choose')} description={scope ? `${name} · ${scope.label}` : name} size="lg">
@@ -244,7 +250,7 @@
 	.rs-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-muted); font: 500 12.5px/1.2 var(--font-ui); }
 	.rs-facts .low { color: var(--wait-text); }
 	.rs-why { color: var(--text-muted); font: 500 12.5px/1.35 var(--font-ui); }
-	.rs-why.fail { color: var(--fail-text); }
+	.rs-why.fail, .rs-why.subtract { color: var(--fail-text); }
 	.rs-why.hold, .rs-why.warn { color: var(--wait-text); }
 	.rs-act { display: flex; align-items: center; gap: 8px; flex: none; }
 	.rs-choose { height: 34px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--text); color: var(--bg); font: 600 13px/1 var(--font-ui); cursor: pointer; white-space: nowrap; }

@@ -291,7 +291,8 @@
 		padding: 2px 0 2px var(--s-3);
 		border-left: 2px solid var(--line-strong);
 	}
-	.reasons li.fail {
+	.reasons li.fail,
+	.reasons li.subtract {
 		border-left-color: var(--fail);
 	}
 	.reasons li.hold,

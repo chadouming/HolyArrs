@@ -38,6 +38,23 @@ describe('verdicts', () => {
 		];
 		expect(keyReasons(rs).map((r) => r.code)).toEqual(['step.not_allowed', 'hard.gate_skipped']);
 	});
+	it('names the rules that cost the points when the total is too low', () => {
+		const rs = [
+			{ code: 'match.title', effect: 'pass', text: 'ok' },
+			{ code: 'points.trait:own:168', effect: 'subtract', points: -80, text: 'Small penalty: fits (-80 points)' },
+			{ code: 'points.trait:own:174', effect: 'subtract', points: -50000, text: 'Anime Raws: fits (-50000 points)' },
+			{ code: 'points.trait:own:182', effect: 'add', points: 26000, text: 'JPN: fits (+26000 points)' },
+			{ code: 'points.below_min', effect: 'fail', text: '-24080 points, needs at least 10000' }
+		];
+		expect(keyReasons(rs).map((r) => r.code)).toEqual(['points.below_min', 'points.trait:own:174', 'points.trait:own:168']);
+	});
+	it('leaves point losses out when the total was enough', () => {
+		const rs = [
+			{ code: 'points.trait:own:168', effect: 'subtract', points: -80, text: 'Small penalty: fits (-80 points)' },
+			{ code: 'step.not_allowed', effect: 'fail', text: 'cam is not allowed' }
+		];
+		expect(keyReasons(rs).map((r) => r.code)).toEqual(['step.not_allowed']);
+	});
 	it('writes the facts line', () => {
 		expect(facts(rel(), () => '3.7 GB')).toBe('Lab · 3.7 GB · 50 seeders · torrent · 15 points · ranked 1');
 		expect(facts(rel({ passed: false, seeders: undefined }), () => '1 GB')).toBe('Lab · 1 GB · torrent');

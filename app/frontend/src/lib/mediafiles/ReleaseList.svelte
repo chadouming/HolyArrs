@@ -181,7 +181,7 @@
 	.facts { color: var(--text-muted); font: var(--t-footnote); font-variant-numeric: tabular-nums; }
 	.reasons { margin: 8px 0 0; padding: 0; list-style: none; font: var(--t-footnote); color: var(--text-muted); }
 	.reasons li { padding: 2px 0 2px 10px; border-left: 2px solid var(--line-strong); }
-	.reasons li.fail { border-left-color: var(--fail); }
+	.reasons li.fail, .reasons li.subtract { border-left-color: var(--fail); }
 	.reasons li.hold, .reasons li.warn { border-left-color: var(--wait); }
 	@media (max-width: 600px) { .rel-top { flex-direction: column; } .switch-list a { flex: 1; justify-content: center; } }
 </style>

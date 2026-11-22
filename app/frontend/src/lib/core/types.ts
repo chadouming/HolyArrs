@@ -358,6 +358,8 @@ export interface Reason {
 	code: string;
 	effect: string;
 	text: string;
+	// What a points rule added or took.
+	points?: number;
 }
 
 export interface ReleaseView {

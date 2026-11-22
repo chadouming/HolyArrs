@@ -40,9 +40,17 @@ export function verdictTone(r: Pick<ReleaseView, 'state' | 'outcome'>): 'red' | 
 	return 'idle';
 }
 
-// Only reasons that changed the result are worth showing up front.
+const TOO_FEW_POINTS = 'points.below_min';
+
+// Only reasons that changed the result are worth showing up front. "Too few
+// points" alone names no rule, so the rules that took points follow it,
+// the costliest first.
 export function keyReasons(reasons: Reason[]): Reason[] {
-	return reasons.filter((x) => x.effect === 'fail' || x.effect === 'rank' || x.effect === 'hold' || x.effect === 'warn');
+	const key = reasons.filter((x) => x.effect === 'fail' || x.effect === 'rank' || x.effect === 'hold' || x.effect === 'warn');
+	const at = key.findIndex((x) => x.code === TOO_FEW_POINTS);
+	if (at < 0) return key;
+	const took = reasons.filter((x) => x.effect === 'subtract').sort((x, y) => (x.points ?? 0) - (y.points ?? 0));
+	return [...key.slice(0, at + 1), ...took, ...key.slice(at + 1)];
 }
 
 export function facts(r: ReleaseView, size: (n: number) => string): string {
