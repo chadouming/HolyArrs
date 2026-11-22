@@ -69,8 +69,6 @@ func fakeServer(t *testing.T, kind string, libRoot string) (*httptest.Server, fu
 			_, _ = io.WriteString(w, `{"ServerName":"Lab `+kind+`","Version":"10.9.0"}`)
 		case kind != "plex" && r.URL.Path == "/Library/Media/Updated" && r.Method == http.MethodPost:
 			w.WriteHeader(http.StatusNoContent)
-		case kind == "jellyfin" && r.URL.Path == "/Library/Refresh" && r.Method == http.MethodPost:
-			w.WriteHeader(http.StatusNoContent)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -195,15 +193,9 @@ func TestJellyfinAndEmbyMediaUpdated(t *testing.T) {
 			waitPending(t, l, w.folder(), Created)
 			l.Flush(ctx)
 			cs := calls()
-			wantCalls := 1
-			if kind == "jellyfin" {
-				wantCalls = 2
-			}
-			if len(cs) != wantCalls || cs[0].method != "POST" || cs[0].path != "/Library/Media/Updated" || cs[0].token != tok {
+			// One call for every kind: Jellyfin gets no whole library refresh.
+			if len(cs) != 1 || cs[0].method != "POST" || cs[0].path != "/Library/Media/Updated" || cs[0].token != tok {
 				t.Fatalf("calls %+v", cs)
-			}
-			if kind == "jellyfin" && (cs[1].method != "POST" || cs[1].path != "/Library/Refresh" || cs[1].body != "") {
-				t.Fatalf("Jellyfin batch refresh %+v", cs[1])
 			}
 			var body struct {
 				Updates []struct{ Path, UpdateType string }
@@ -215,13 +207,13 @@ func TestJellyfinAndEmbyMediaUpdated(t *testing.T) {
 			// A delete that kept the files tells nobody; one that deleted them does.
 			w.emit(t, domain.EventTitleRemoved, map[string]any{"delete_files": false})
 			l.Flush(ctx)
-			if len(calls()) != wantCalls {
+			if len(calls()) != 1 {
 				t.Fatal("told about a delete that kept the files")
 			}
 			w.emit(t, domain.EventTitleRemoved, map[string]any{"delete_files": true})
 			waitPending(t, l, w.folder(), Deleted)
 			l.Flush(ctx)
-			if cs := calls(); len(cs) != 2*wantCalls || !strings.Contains(cs[wantCalls].body, `"Deleted"`) {
+			if cs := calls(); len(cs) != 2 || !strings.Contains(cs[1].body, `"Deleted"`) {
 				t.Fatalf("delete calls %+v", cs)
 			}
 			// Switched off for imports: nothing.
@@ -231,22 +223,19 @@ func TestJellyfinAndEmbyMediaUpdated(t *testing.T) {
 			w.emit(t, "import_done", nil)
 			waitPending(t, l, w.folder(), Created)
 			l.Flush(ctx)
-			if len(calls()) != 2*wantCalls {
+			if len(calls()) != 2 {
 				t.Fatal("told about an import with imports off")
 			}
 		})
 	}
 }
 
-func TestJellyfinBatchRefreshError(t *testing.T) {
+// A failed media updated call is the error Tell returns.
+func TestJellyfinUpdateError(t *testing.T) {
 	w := newWorld(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != `MediaBrowser Client="HolyArrs", Device="HolyArrs", DeviceId="holyarrs", Version="1", Token="`+tok+`"` {
 			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		if r.URL.Path == "/Library/Media/Updated" {
-			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -258,7 +247,7 @@ func TestJellyfinBatchRefreshError(t *testing.T) {
 	}
 	err = (&Linker{Store: w.s, Vault: w.v}).Tell(context.Background(), m, []Update{{Path: w.folder(), Change: Created}})
 	if err == nil || err.Error() != "the server answered 500" {
-		t.Fatalf("refresh error = %v", err)
+		t.Fatalf("update error = %v", err)
 	}
 }
 

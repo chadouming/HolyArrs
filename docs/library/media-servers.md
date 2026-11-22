@@ -89,7 +89,7 @@ HolyArrs waits 10 s and gathers every changed folder before it sends, so renamin
 | Server | What HolyArrs sends |
 |---|---|
 | Plex | Finds the movie, TV or music library that holds the folder and scans that folder only. If none holds it, scans every library of that type |
-| Jellyfin | The list of created, changed or deleted folders, then one library refresh |
+| Jellyfin | The list of created, changed or deleted folders |
 | Emby | The list of created, changed or deleted folders |
 
 A request to a server times out after 20 s, and **Test** after 30 s.

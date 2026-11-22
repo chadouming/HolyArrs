@@ -77,7 +77,7 @@ export function startJellyfinFake() {
 		// The address test in Settings asks the open server info, as a real Jellyfin answers it.
 		if (req.method === 'GET' && req.url === '/System/Info/Public') return send(res, 200, { ServerName: 'Fake Jellyfin', Version: '10.9.0', ProductName: 'Jellyfin Server', Id: 'fake-jellyfin' });
 		// Current Jellyfin uses the MediaBrowser Authorization token for server calls.
-		const serverCall = ['/System/Info', '/Library/Media/Updated', '/Library/Refresh'].includes(req.url ?? '') || (req.url ?? '').startsWith('/Items?');
+		const serverCall = ['/System/Info', '/Library/Media/Updated'].includes(req.url ?? '') || (req.url ?? '').startsWith('/Items?');
 		if (serverCall && (!req.headers.authorization?.startsWith('MediaBrowser ') || !req.headers.authorization.includes(`Token="${jellyKey}"`))) return send(res, 401, '');
 		if (req.method === 'GET' && req.url === '/System/Info') return send(res, 200, { ServerName: 'Fake Jellyfin', Version: '10.9.0', Id: 'fake-jellyfin' });
 		// Its movies and series, for the Open in Jellyfin button: only Saffron Lighthouse.
@@ -89,7 +89,6 @@ export function startJellyfinFake() {
 			updates.push(JSON.parse((await body(req)) || '{}'));
 			return send(res, 204, '');
 		}
-		if (req.method === 'POST' && req.url === '/Library/Refresh') return send(res, 204, '');
 		if (req.method === 'GET' && req.url === '/updates') return send(res, 200, updates);
 		send(res, 404, { error: 'no route' });
 	});

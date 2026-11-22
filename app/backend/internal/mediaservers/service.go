@@ -629,9 +629,9 @@ func plexType(kind string) string {
 // Tell asks the server to look at each folder again. Plex scans the movie,
 // TV or music library that holds the folder, only that folder; with no
 // library holding it, every library of the title's type is scanned. Jellyfin and Emby get one media
-// updated call with every folder and its change. Jellyfin then gets one full
-// library refresh for the batch because Jellyfin 12.2 accepts the path report
-// without reliably indexing a newly created folder.
+// updated call with every folder and its change, and nothing else: a whole
+// library refresh per batch makes Jellyfin scan every library and set up its
+// folder watching again each time, which uses up the system's inotify limit.
 func (l *Linker) Tell(ctx context.Context, m domain.MediaServer, us []Update) error {
 	if len(us) == 0 {
 		return nil
@@ -678,14 +678,8 @@ func (l *Linker) Tell(ctx context.Context, m domain.MediaServer, us []Update) er
 		body.Updates = append(body.Updates, upd{Path: u.Path, UpdateType: u.Change})
 	}
 	b, _ := json.Marshal(body)
-	if _, err := l.do(ctx, m, http.MethodPost, "/Library/Media/Updated", b); err != nil {
-		return err
-	}
-	if m.Kind == "jellyfin" {
-		_, err := l.do(ctx, m, http.MethodPost, "/Library/Refresh", nil)
-		return err
-	}
-	return nil
+	_, err := l.do(ctx, m, http.MethodPost, "/Library/Media/Updated", b)
+	return err
 }
 
 // held is a Test line said while calls are held back; it unwraps to
