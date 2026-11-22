@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs가 아직 저장한 자막이 없습니다.",
 	"subtitles.page.done.downloaded": "다운로드됨",
 	"subtitles.page.done.how": "만든 방법",
-	"subtitles.page.done.when": "저장 시각"
+	"subtitles.page.done.when": "저장 시각",
+	"subtitles.page.pause": "일시 중지",
+	"subtitles.page.resume": "다시 시작",
+	"subtitles.page.pausedNote": "일시 중지됨: 검색, 번역, 음성 인식은 대기열에서 기다립니다. 이미 실행 중인 작업은 그대로 끝까지 진행됩니다.",
+	"subtitles.page.pauseFailed": "일시 중지 상태를 바꾸지 못했습니다"
 }

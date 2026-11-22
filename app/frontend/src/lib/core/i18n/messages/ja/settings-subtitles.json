@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "すべてのカード ({n})",
 	"settings.subtitles.trGPUHint": "CPU よりずっと高速です。コンテナに --device /dev/dri でカードを渡すと、ここに表示されます。",
 	"settings.subtitles.trThreads": "CPU スレッド数",
-	"settings.subtitles.trThreadsHint": "空欄で既定値（{n}）。このマシンには {max} あります。"
+	"settings.subtitles.trThreadsHint": "空欄で既定値（{n}）。このマシンには {max} あります。",
+	"settings.subtitles.sttAtOnce": "グラフィックカードごとの同時処理ファイル数",
+	"settings.subtitles.sttAtOnceHint": "各カードで同時に聞き取る動画の数です。増やすとカードのメモリを多く使います。数を変えた場合は、HolyArrs を次に起動したときから反映されます。",
+	"settings.subtitles.sttFast": "速くする（正確さは少し下がる）",
+	"settings.subtitles.sttFastHint": "各行で 5 つの候補を比べる代わりに、候補を 1 つだけ残します。およそ 4 分の 1 速くなりますが、間違う単語が少し増えます。"
 }

@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs belum menyimpan subtitel apa pun.",
 	"subtitles.page.done.downloaded": "Diunduh",
 	"subtitles.page.done.how": "Cara pembuatannya",
-	"subtitles.page.done.when": "Disimpan"
+	"subtitles.page.done.when": "Disimpan",
+	"subtitles.page.pause": "Jeda",
+	"subtitles.page.resume": "Lanjutkan",
+	"subtitles.page.pausedNote": "Dijeda: pencarian, terjemahan, dan ucapan ke teks menunggu dalam antrean. Tugas yang sedang berjalan akan selesai dengan sendirinya.",
+	"subtitles.page.pauseFailed": "Jeda tidak dapat diubah"
 }

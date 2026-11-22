@@ -1583,6 +1583,7 @@ seen
 seen_at
 seen_complete
 seerr
+segments
 selected
 selections
 sendUpdatesToClient
@@ -1873,7 +1874,10 @@ trait
 trait_id
 traits
 trakt
+transcribe_at_once
+transcribe_fast
 transcribe_missing
+transcribe_model
 transcribed
 transcriber
 transcription
@@ -2029,6 +2033,7 @@ wins
 wish
 wishlist
 won
+word
 words
 world_rank
 writable

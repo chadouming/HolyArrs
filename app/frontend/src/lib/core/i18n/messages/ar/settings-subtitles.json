@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "كل البطاقات ({n})",
 	"settings.subtitles.trGPUHint": "أسرع بكثير من CPU. تظهر البطاقات هنا عند منح الحاوية واحدة عبر --device /dev/dri.",
 	"settings.subtitles.trThreads": "خيوط CPU",
-	"settings.subtitles.trThreadsHint": "اتركه فارغًا للقيمة الافتراضية ({n}). هذا الجهاز لديه {max}."
+	"settings.subtitles.trThreadsHint": "اتركه فارغًا للقيمة الافتراضية ({n}). هذا الجهاز لديه {max}.",
+	"settings.subtitles.sttAtOnce": "عدد الملفات في الوقت نفسه على كل بطاقة رسوميات",
+	"settings.subtitles.sttAtOnceHint": "عدد مقاطع الفيديو التي يُستمع إليها في الوقت نفسه على كل بطاقة. كلما زاد العدد زاد استخدام ذاكرة البطاقة. يُعمل بالعدد الجديد عند التشغيل التالي لـ HolyArrs.",
+	"settings.subtitles.sttFast": "أسرع، وأقل دقة بقليل",
+	"settings.subtitles.sttFastHint": "يحتفظ بمحاولة واحدة لكل سطر بدلًا من مقارنة خمس محاولات. أسرع بنحو الربع؛ وتظهر بضع كلمات خاطئة إضافية."
 }

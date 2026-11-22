@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs ने अभी तक कोई सबटाइटल सेव नहीं किया है।",
 	"subtitles.page.done.downloaded": "डाउनलोड किया गया",
 	"subtitles.page.done.how": "कैसे बना",
-	"subtitles.page.done.when": "सेव हुआ"
+	"subtitles.page.done.when": "सेव हुआ",
+	"subtitles.page.pause": "रोकें",
+	"subtitles.page.resume": "फिर शुरू करें",
+	"subtitles.page.pausedNote": "रुका हुआ है: खोज, अनुवाद और आवाज़ से टेक्स्ट कतार में इंतज़ार कर रहे हैं। जो काम चल रहा है वह अपने आप पूरा हो जाएगा।",
+	"subtitles.page.pauseFailed": "विराम बदला नहीं जा सका"
 }

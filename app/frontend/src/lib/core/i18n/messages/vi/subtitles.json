@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs chưa lưu phụ đề nào.",
 	"subtitles.page.done.downloaded": "Đã tải về",
 	"subtitles.page.done.how": "Cách tạo",
-	"subtitles.page.done.when": "Đã lưu"
+	"subtitles.page.done.when": "Đã lưu",
+	"subtitles.page.pause": "Tạm dừng",
+	"subtitles.page.resume": "Tiếp tục",
+	"subtitles.page.pausedNote": "Đang tạm dừng: việc tìm kiếm, dịch và chuyển lời nói thành chữ chờ trong hàng đợi. Tác vụ đang chạy sẽ tự hoàn tất.",
+	"subtitles.page.pauseFailed": "Không thể thay đổi trạng thái tạm dừng"
 }

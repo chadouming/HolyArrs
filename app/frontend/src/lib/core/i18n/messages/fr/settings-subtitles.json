@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Toutes les cartes ({n})",
 	"settings.subtitles.trGPUHint": "Bien plus rapide que le CPU. Les cartes apparaissent ici quand le conteneur en reçoit une avec --device /dev/dri.",
 	"settings.subtitles.trThreads": "Threads CPU",
-	"settings.subtitles.trThreadsHint": "Vide pour la valeur par défaut ({n}). Cette machine en a {max}."
+	"settings.subtitles.trThreadsHint": "Vide pour la valeur par défaut ({n}). Cette machine en a {max}.",
+	"settings.subtitles.sttAtOnce": "Fichiers à la fois sur chaque carte graphique",
+	"settings.subtitles.sttAtOnceHint": "Combien de vidéos sont écoutées en même temps sur chaque carte. Plus il y en a, plus la mémoire de la carte est utilisée. Un nouveau nombre compte à partir du prochain démarrage de HolyArrs.",
+	"settings.subtitles.sttFast": "Plus rapide, un peu moins exact",
+	"settings.subtitles.sttFastHint": "Garde une seule proposition pour chaque ligne au lieu d'en comparer cinq. Environ un quart plus rapide ; quelques mots de plus sont mal compris."
 }

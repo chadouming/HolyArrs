@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs har ikke lagret noen undertekster ennå.",
 	"subtitles.page.done.downloaded": "Lastet ned",
 	"subtitles.page.done.how": "Hvordan den ble laget",
-	"subtitles.page.done.when": "Lagret"
+	"subtitles.page.done.when": "Lagret",
+	"subtitles.page.pause": "Sett på pause",
+	"subtitles.page.resume": "Fortsett",
+	"subtitles.page.pausedNote": "På pause: søk, oversettelser og tale til tekst venter i køen. En jobb som allerede kjører, blir ferdig av seg selv.",
+	"subtitles.page.pauseFailed": "Pausen kunne ikke endres"
 }

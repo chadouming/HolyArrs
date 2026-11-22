@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Semua kad ({n})",
 	"settings.subtitles.trGPUHint": "Jauh lebih pantas daripada CPU. Kad dipaparkan di sini apabila kontena diberi satu dengan --device /dev/dri.",
 	"settings.subtitles.trThreads": "Bebenang CPU",
-	"settings.subtitles.trThreadsHint": "Kosongkan untuk lalai ({n}). Mesin ini ada {max}."
+	"settings.subtitles.trThreadsHint": "Kosongkan untuk lalai ({n}). Mesin ini ada {max}.",
+	"settings.subtitles.sttAtOnce": "Fail serentak pada setiap kad grafik",
+	"settings.subtitles.sttAtOnceHint": "Berapa banyak video didengar pada masa yang sama pada setiap kad. Lebih banyak menggunakan lebih banyak memori kad. Nombor baharu berkuat kuasa apabila HolyArrs dimulakan seterusnya.",
+	"settings.subtitles.sttFast": "Lebih cepat, kurang tepat sedikit",
+	"settings.subtitles.sttFastHint": "Menyimpan satu calon bagi setiap baris dan bukannya membandingkan lima. Kira-kira suku lebih cepat; beberapa perkataan lagi menjadi salah."
 }

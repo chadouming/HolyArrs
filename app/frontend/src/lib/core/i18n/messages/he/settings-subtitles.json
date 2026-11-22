@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "כל הכרטיסים ({n})",
 	"settings.subtitles.trGPUHint": "מהיר בהרבה מה-CPU. כרטיסים מופיעים כאן כשהקונטיינר מקבל אחד עם --device /dev/dri.",
 	"settings.subtitles.trThreads": "תהליכוני CPU",
-	"settings.subtitles.trThreadsHint": "ריק לברירת המחדל ({n}). למחשב הזה יש {max}."
+	"settings.subtitles.trThreadsHint": "ריק לברירת המחדל ({n}). למחשב הזה יש {max}.",
+	"settings.subtitles.sttAtOnce": "קבצים בו-זמנית על כל כרטיס גרפי",
+	"settings.subtitles.sttAtOnceHint": "לכמה סרטוני וידאו מאזינים בו-זמנית על כל כרטיס. מספר גדול יותר משתמש ביותר מזיכרון הכרטיס. מספר חדש נכנס לתוקף בהפעלה הבאה של HolyArrs.",
+	"settings.subtitles.sttFast": "מהיר יותר, קצת פחות מדויק",
+	"settings.subtitles.sttFastHint": "שומר הצעה אחת לכל שורה במקום להשוות חמש. מהיר יותר בכרבע; עוד כמה מילים יוצאות שגויות."
 }

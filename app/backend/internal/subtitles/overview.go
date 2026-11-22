@@ -46,7 +46,8 @@ type Overview struct {
 	TranscribeMissing bool           `json:"transcribe_missing"`
 	TranslatorReady   bool           `json:"translator_ready"`
 	TranslatorName    string         `json:"translator_name"`
-	Done              []DoneRow      `json:"done"` // the newest subtitles HolyArrs saved
+	Paused            bool           `json:"paused"` // subtitle work is held in the queue
+	Done              []DoneRow      `json:"done"`   // the newest subtitles HolyArrs saved
 	DoneCounts        DoneCounts     `json:"done_counts"`
 	Jobs              []OverviewJob  `json:"jobs"`
 	Running           map[string]int `json:"running"` // by kind
@@ -56,7 +57,7 @@ type Overview struct {
 // Overview reads the page's numbers and jobs.
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	db := s.Store.Read()
-	o := Overview{Jobs: []OverviewJob{}, Running: map[string]int{}, Queued: map[string]int{}}
+	o := Overview{Jobs: []OverviewJob{}, Running: map[string]int{}, Queued: map[string]int{}, Paused: s.Paused()}
 	var err error
 	if o.MissingCounts, err = missingCounts(ctx, db); err != nil {
 		return o, err

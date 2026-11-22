@@ -616,6 +616,7 @@ var routeOwners = map[string]Owner{
 	"POST /api/v1/subtitles/search":             subtitles,
 	"GET /api/v1/subtitles/missing":             subtitles,
 	"GET /api/v1/subtitles/overview":            subtitles,
+	"PUT /api/v1/subtitles/pause":               subtitles,
 	"POST /api/v1/subtitles/missing/search":     subtitles,
 	"POST /api/v1/files/{id}/subtitles/choices": subtitles,
 	"POST /api/v1/files/{id}/subtitles/choose":  subtitles,

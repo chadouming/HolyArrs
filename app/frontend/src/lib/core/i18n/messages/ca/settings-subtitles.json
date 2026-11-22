@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Totes les targetes ({n})",
 	"settings.subtitles.trGPUHint": "Molt més ràpid que la CPU. Les targetes apareixen aquí quan el contenidor en rep una amb --device /dev/dri.",
 	"settings.subtitles.trThreads": "Fils de CPU",
-	"settings.subtitles.trThreadsHint": "Buit per al valor per defecte ({n}). Aquesta màquina en té {max}."
+	"settings.subtitles.trThreadsHint": "Buit per al valor per defecte ({n}). Aquesta màquina en té {max}.",
+	"settings.subtitles.sttAtOnce": "Fitxers alhora a cada targeta gràfica",
+	"settings.subtitles.sttAtOnceHint": "Quants vídeos s'escolten al mateix temps a cada targeta. Com més n'hi ha, més memòria de la targeta es fa servir. Un número nou compta a partir de la pròxima vegada que s'iniciï HolyArrs.",
+	"settings.subtitles.sttFast": "Més ràpid, una mica menys exacte",
+	"settings.subtitles.sttFastHint": "Conserva una sola proposta per a cada línia en lloc de comparar-ne cinc. Aproximadament una quarta part més ràpid; unes quantes paraules més surten malament."
 }

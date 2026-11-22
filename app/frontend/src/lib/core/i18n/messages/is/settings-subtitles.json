@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Öll kort ({n})",
 	"settings.subtitles.trGPUHint": "Miklu hraðara en CPU. Kort birtast hér þegar gámurinn fær eitt með --device /dev/dri.",
 	"settings.subtitles.trThreads": "CPU-þræðir",
-	"settings.subtitles.trThreadsHint": "Autt fyrir sjálfgefið ({n}). Þessi vél hefur {max}."
+	"settings.subtitles.trThreadsHint": "Autt fyrir sjálfgefið ({n}). Þessi vél hefur {max}.",
+	"settings.subtitles.sttAtOnce": "Skrár í einu á hverju skjákorti",
+	"settings.subtitles.sttAtOnceHint": "Hve mörg myndbönd er hlustað á samtímis á hverju korti. Fleiri nota meira af minni kortsins. Ný tala tekur gildi næst þegar HolyArrs er ræst.",
+	"settings.subtitles.sttFast": "Hraðara, aðeins ónákvæmara",
+	"settings.subtitles.sttFastHint": "Heldur einni tillögu fyrir hverja línu í stað þess að bera saman fimm. Um fjórðungi hraðara; nokkur orð í viðbót verða röng."
 }

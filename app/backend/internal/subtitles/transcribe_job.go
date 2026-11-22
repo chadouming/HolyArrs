@@ -7,7 +7,6 @@ import (
 	"log"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/jobs"
@@ -51,13 +50,39 @@ type Transcriber struct {
 	Model     string `json:"model"`     // the speech model's name
 }
 
+// speechModel resolves the speech model to use: explicit setting if valid,
+// default speech model if downloaded, any downloaded speech model on disk,
+// otherwise the default speech model.
+func (s *Service) speechModel(ctx context.Context) (builtin.Model, bool) {
+	if s.Store != nil {
+		set := ReadSettings(ctx, s.Store.Read())
+		if set.TranscribeModel != "" {
+			if m, ok := builtin.ByID(set.TranscribeModel); ok && m.Kind == builtin.KindSpeech {
+				return m, true
+			}
+		}
+	}
+	def, ok := builtin.ByKind(builtin.KindSpeech)
+	if ok {
+		if _, err := s.modelFor(def.ID); err == nil {
+			return def, true
+		}
+	}
+	for _, m := range builtin.AllByKind(builtin.KindSpeech) {
+		if _, err := s.modelFor(m.ID); err == nil {
+			return m, true
+		}
+	}
+	return def, ok
+}
+
 // Transcriber reports whether the speech programs and models are there.
-func (s *Service) Transcriber(_ context.Context) Transcriber {
+func (s *Service) Transcriber(ctx context.Context) Transcriber {
 	var t Transcriber
 	if s.Runners != nil {
 		_, t.Available = transcribe.Find()
 	}
-	speech, ok1 := builtin.ByKind(builtin.KindSpeech)
+	speech, ok1 := s.speechModel(ctx)
 	vad, ok2 := builtin.ByKind(builtin.KindVAD)
 	t.Model = speech.Name
 	if !t.Available || !ok1 || !ok2 {
@@ -152,29 +177,13 @@ func (s *Service) handleTranscribe(ctx context.Context, r *jobs.Run) error {
 
 var deviceNumber = regexp.MustCompile(`([0-9]+)$`)
 
-// transcribeDevice is the graphics card a transcript runs on: the one chosen
-// for the built-in translator, the first card with "All cards", or -1 for the CPU.
-func (s *Service) transcribeDevice(ctx context.Context) int {
-	gpu := readTranslator(ctx, s.Store.Read()).GPU
-	if gpu == GPUAll {
-		devs := s.Devices(ctx)
-		if len(devs) == 0 {
-			return -1
-		}
-		gpu = devs[0].ID
-	}
-	if m := deviceNumber.FindStringSubmatch(gpu); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		return n
-	}
-	return -1
-}
-
 // Transcribe makes a subtitle from the audio of a File that has no text
 // subtitle in any language, and saves it beside the video in the language
 // that is spoken. It then asks for a search, so the translator can make the
 // other wanted languages from it by the owner's own rules.
 func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by domain.Actor) (TranscribeResult, error) {
+	doneJob := s.speech.enter()
+	defer doneJob()
 	res := TranscribeResult{}
 	fc, err := s.load(ctx, fileID)
 	if err != nil {
@@ -191,7 +200,7 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 		return res, ErrHasText
 	}
 	progs, _ := transcribe.Find()
-	speech, _ := builtin.ByKind(builtin.KindSpeech)
+	speech, _ := s.speechModel(ctx)
 	vad, _ := builtin.ByKind(builtin.KindVAD)
 	speechFile, err := s.modelFor(speech.ID)
 	if err != nil {
@@ -225,13 +234,45 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 	if termsLang == "" && len(wanted) > 0 {
 		termsLang = wanted[0]
 	}
+	set := ReadSettings(ctx, s.Store.Read())
+	devs := s.Devices(ctx)
+	cards := s.speechCards(ctx)
+	atOnce := effectiveTranscribeAtOnce(set.TranscribeAtOnce, cards, devs, speech.NeedBytes)
+	// A place on a card, with its speech server: the model stays loaded there
+	// between this file's calls and for the files that follow.
+	device, server, release, err := s.speech.take(ctx, cards, atOnce)
+	if err != nil {
+		return res, err
+	}
+	defer release()
+	var extraSlots []transcribe.Slot
+	releaseExtra := func() {}
+	if device >= 0 && atOnce*len(cards) > 1 {
+		extraSlots, releaseExtra = s.speech.takeExtra(cards, atOnce, len(cards)*atOnce-1)
+		defer releaseExtra()
+	}
+	if s.Runners != nil && device >= 0 {
+		seenCards := map[int]bool{device: true}
+		for _, sl := range extraSlots {
+			seenCards[sl.Device] = true
+		}
+		for card := range seenCards {
+			if tightVRAM(cardMemoryMB(devs, card)) {
+				s.Runners.StopIdle(fmt.Sprintf("Vulkan%d", card))
+			}
+		}
+	}
 	out, err := transcribe.Run(ctx, fc.video(), track, track.Language, transcribe.Options{
-		Programs: progs, Model: speechFile.Path, VAD: vadFile.Path, Device: s.transcribeDevice(ctx), Threads: builtin.DefaultThreads(),
+		Programs: progs, Model: speechFile.Path, VAD: vadFile.Path, Device: device, Threads: speechThreads(atOnce),
+		Server: server, ExtraSlots: extraSlots, Fast: set.TranscribeFast,
 		Prompt: s.promptFor(ctx, fc, termsLang), Log: func(line string) { log.Print(line) },
 		CacheDir: filepath.Join(s.ModelsDir, ".cache"), // the folder the translator's runner uses
 		// The last few percent are the saving of the file.
 		Progress: func(p float64) { tellProgress(ctx, p*0.97) },
 	})
+	releaseExtra()
+	release()
+	doneJob()
 	if err != nil {
 		return res, s.transcribeFail(ctx, fc, err, byHand, by)
 	}
@@ -255,6 +296,7 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 		res.Skipped = "a subtitle arrived while transcribing"
 		return res, nil
 	}
+	s.translateForeignCues(ctx, fc, lang, cues)
 	// A transcript is a machine-made subtitle: marked so, it gives way to
 	// one a person made wherever those do.
 	made, name, score := "ai_translated", speech.Name, scoreTranscribed
@@ -289,4 +331,10 @@ func (s *Service) transcribeFail(ctx context.Context, fc *fileCtx, err error, by
 		Data:    map[string]any{"file_id": fc.file.ID, "reason": err.Error(), "by_hand": byHand},
 		Summary: "Could not make a subtitle from the audio: " + err.Error()})
 	return err
+}
+
+// speechThreads is how many CPU threads one transcript uses. With several at
+// once they share the cores the translator's default would give one.
+func speechThreads(atOnce int) int {
+	return max(builtin.DefaultThreads()/max(atOnce, 1), 2)
 }

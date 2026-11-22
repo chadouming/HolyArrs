@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Alle kort ({n})",
 	"settings.subtitles.trGPUHint": "Mye raskere enn CPU-en. Kort vises her når containeren får ett med --device /dev/dri.",
 	"settings.subtitles.trThreads": "CPU-tråder",
-	"settings.subtitles.trThreadsHint": "Tomt for standard ({n}). Denne maskinen har {max}."
+	"settings.subtitles.trThreadsHint": "Tomt for standard ({n}). Denne maskinen har {max}.",
+	"settings.subtitles.sttAtOnce": "Filer om gangen på hvert grafikkort",
+	"settings.subtitles.sttAtOnceHint": "Hvor mange videoer som lyttes til samtidig på hvert kort. Flere bruker mer av kortets minne. Et nytt tall gjelder fra neste gang HolyArrs starter.",
+	"settings.subtitles.sttFast": "Raskere, litt mindre nøyaktig",
+	"settings.subtitles.sttFastHint": "Beholder ett forslag for hver linje i stedet for å sammenligne fem. Omtrent en fjerdedel raskere; noen flere ord blir feil."
 }

@@ -53,6 +53,18 @@ type Options struct {
 	// CacheDir is where the graphics driver keeps what it compiles for a
 	// card, so each file does not wait for it again. Not used on the CPU.
 	CacheDir string
+	// Server, when set and the image holds whisper.cpp's server, keeps the
+	// model loaded between this file's calls and for the next file. Without
+	// it the one-shot program loads the model for every call.
+	Server *Server
+	// Fast keeps one candidate transcript in place of searching five: about
+	// a quarter quicker, a little less exact.
+	Fast bool
+	// ExtraSlots are additional idle GPU slots used for parallel chunked
+	// transcription of long files.
+	ExtraSlots []Slot
+	// NoFlashAttn disables flash attention on the speech backend.
+	NoFlashAttn bool
 	// Progress, when set, is told how far the run is, from 0 to 1.
 	Progress func(p float64)
 }
@@ -65,6 +77,48 @@ const (
 )
 
 var progressLine = regexp.MustCompile(`progress\s*=\s*(\d+)\s*%`)
+
+// useServer reports whether this run goes through the speech server.
+func (o Options) useServer() bool { return o.Server != nil && o.Programs.Server != "" }
+
+// serverSegments reads the server's detailed answer into the segments the
+// one-shot program writes: times in ms, and a time for every word piece.
+func serverSegments(body []byte) ([]segment, error) {
+	var ans struct {
+		Segments []struct {
+			Text  string  `json:"text"`
+			Start float64 `json:"start"`
+			End   float64 `json:"end"`
+			Words []struct {
+				Word  string  `json:"word"`
+				Start float64 `json:"start"`
+				End   float64 `json:"end"`
+			} `json:"words"`
+		} `json:"segments"`
+	}
+	if err := json.Unmarshal(body, &ans); err != nil {
+		return nil, fmt.Errorf("the transcript could not be read: %w", err)
+	}
+	ms := func(sec float64) int64 { return int64(sec*1000 + 0.5) }
+	out := make([]segment, len(ans.Segments))
+	for i, a := range ans.Segments {
+		out[i].Text = a.Text
+		out[i].Offsets.From, out[i].Offsets.To = ms(a.Start), ms(a.End)
+		for _, w := range a.Words {
+			var t struct {
+				Text    string `json:"text"`
+				Offsets struct {
+					From int64 `json:"from"`
+					To   int64 `json:"to"`
+				} `json:"offsets"`
+			}
+			t.Text = w.Word
+			t.Offsets.From, t.Offsets.To = ms(w.Start), ms(w.End)
+			out[i].Tokens = append(out[i].Tokens, t)
+		}
+	}
+	return out, nil
+}
 
 func (o Options) tell(p float64) {
 	if o.Progress != nil {
@@ -211,25 +265,48 @@ var detected = regexp.MustCompile(`auto-detected language:\s*([a-z]{2,3})\b`)
 // spoken tells the language of the sound file from three samples: the one at
 // least two agree on, or one that agrees with hint, the track's own tag.
 func spoken(ctx context.Context, o Options, dir, wav string, seconds float64, hint string) (string, error) {
+	info, wavOK := parseWAV(wav)
 	count := map[string]int{}
 	var order []string
 	for i, at := range samplePoints {
 		sample := filepath.Join(dir, fmt.Sprintf("sample%d.wav", i))
 		start := max(seconds*at-SampleSeconds/2, 0)
-		if _, _, err := run(ctx, o.Log, o.Programs.FFmpeg, "-nostdin", "-loglevel", "error", "-y",
-			"-ss", strconv.FormatFloat(start, 'f', 1, 64), "-t", strconv.Itoa(SampleSeconds), "-i", wav, sample); err != nil {
-			return "", err
+		if wavOK {
+			startByte := int64(start * float64(wavBytesPerSec))
+			endByte := startByte + int64(SampleSeconds)*wavBytesPerSec
+			if err := sliceWAV(wav, info, startByte, endByte, sample); err != nil {
+				return "", err
+			}
+		} else {
+			if _, _, err := run(ctx, o.Log, o.Programs.FFmpeg, "-nostdin", "-loglevel", "error", "-y",
+				"-ss", strconv.FormatFloat(start, 'f', 1, 64), "-t", strconv.Itoa(SampleSeconds), "-i", wav, sample); err != nil {
+				return "", err
+			}
 		}
-		args := append([]string{"-m", o.Model, "-f", sample, "-dl", "-t", strconv.Itoa(max(o.Threads, 1))}, o.device()...)
-		out, errOut, err := runWatch(ctx, o.Log, nil, o.env(), o.Programs.Whisper, args...)
-		if err != nil {
-			return "", err
+		var said string
+		if o.useServer() {
+			var lines []string
+			if _, err := o.Server.post(ctx, o, sample, map[string]string{"detect_language": "true", "response_format": "json", "no_timestamps": "true", "vad": "true"},
+				func(l string) { lines = append(lines, l) }, o.Log); err != nil {
+				return "", err
+			}
+			said = strings.Join(lines, "\n")
+		} else {
+			args := append([]string{"-m", o.Model, "-f", sample, "-dl", "-t", strconv.Itoa(max(o.Threads, 1))}, o.device()...)
+			out, errOut, err := runWatch(ctx, o.Log, nil, o.env(), o.Programs.Whisper, args...)
+			if err != nil {
+				return "", err
+			}
+			said = out + "\n" + errOut
 		}
-		if m := detected.FindStringSubmatch(out + "\n" + errOut); m != nil {
+		if m := detected.FindStringSubmatch(said); m != nil {
 			if count[m[1]] == 0 {
 				order = append(order, m[1])
 			}
 			count[m[1]]++
+			if count[m[1]] >= 2 {
+				return m[1], nil
+			}
 		}
 	}
 	for _, l := range order {
@@ -268,24 +345,35 @@ func Run(ctx context.Context, video string, t Track, hint string, o Options) (Re
 	}
 	res.Language = lang
 	o.tell(shareLanguage)
-	base := filepath.Join(dir, "out")
-	// The full JSON holds a time for every word, which is what lets a long
-	// segment be cut into lines that are timed, not guessed.
-	args := []string{"-m", o.Model, "-f", wav, "-l", lang, "-ojf", "-of", base, "-t", strconv.Itoa(max(o.Threads, 1)), "--vad", "-vm", o.VAD}
-	args = append(args, o.device()...)
-	if p := cleanPrompt(o.Prompt); p != "" {
-		// Given once, at the start. Carried through the whole file it made
-		// Whisper stop marking times: one segment for every half minute.
-		args = append(args, "--prompt", p)
+	// A time for every word is what lets a long segment be cut into lines
+	// that are timed, not guessed. Whisper's log says which stretches of sound
+	// voice detection kept, which is what places each word in the video, and
+	// its percent. The log is long, so it reaches the app's own only when the
+	// run fails.
+	prompt := cleanPrompt(o.Prompt)
+	if o.useServer() {
+		if len(o.ExtraSlots) > 0 {
+			if info, ok := parseWAV(wav); ok && info.seconds >= 180 {
+				res.Cues, err = runChunked(ctx, o, dir, wav, info, lang, prompt)
+				if err != nil {
+					return res, err
+				}
+				if len(res.Cues) == 0 {
+					return res, ErrNoSpeech
+				}
+				return res, nil
+			}
+		}
+		res.Cues, err = runSingleServer(ctx, o, wav, lang, prompt)
+		if err != nil {
+			return res, err
+		}
+		if len(res.Cues) == 0 {
+			return res, ErrNoSpeech
+		}
+		return res, nil
 	}
-	// whisper-cli is left to write its log: it says there which stretches of
-	// sound voice detection kept, which is what places each word in the video.
-	// The log is long, so it reaches the app's own only when the run fails.
 	var kept timeMap
-	var said []string
-	if o.Progress != nil {
-		args = append(args, "-pp") // and its percent, beside the log
-	}
 	onLine := func(line string) {
 		kept.add(line)
 		if m := progressLine.FindStringSubmatch(line); m != nil {
@@ -293,6 +381,29 @@ func Run(ctx context.Context, video string, t Track, hint string, o Options) (Re
 			o.tell(shareLanguage + (1-shareLanguage)*float64(min(n, 100))/100)
 		}
 	}
+	var doc struct {
+		Transcription []segment `json:"transcription"`
+	}
+	base := filepath.Join(dir, "out")
+	args := []string{"-m", o.Model, "-f", wav, "-l", lang, "-ojf", "-of", base, "-t", strconv.Itoa(max(o.Threads, 1)), "--vad", "-vm", o.VAD, "-vmsd", "20"}
+	args = append(args, o.device()...)
+	if o.Fast {
+		args = append(args, "-bs", "1", "-bo", "1", "-nf")
+	} else {
+		args = append(args, "-tpi", "0.4")
+	}
+	if o.noFlashAttn() {
+		args = append(args, "-nfa")
+	}
+	if prompt != "" {
+		// Given once, at the start. Carried through the whole file it made
+		// Whisper stop marking times: one segment for every half minute.
+		args = append(args, "--prompt", prompt)
+	}
+	if o.Progress != nil {
+		args = append(args, "-pp")
+	}
+	var said []string
 	quiet := func(line string) { said = append(said, line) }
 	if _, _, err := runWatch(ctx, quiet, onLine, o.env(), o.Programs.Whisper, args...); err != nil {
 		if o.Log != nil {
@@ -305,9 +416,6 @@ func Run(ctx context.Context, video string, t Track, hint string, o Options) (Re
 	raw, err := os.ReadFile(base + ".json")
 	if err != nil {
 		return res, errors.New("whisper-cli wrote no transcript")
-	}
-	var doc struct {
-		Transcription []segment `json:"transcription"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return res, fmt.Errorf("the transcript could not be read: %w", err)
@@ -351,6 +459,9 @@ func (m *timeMap) add(line string) {
 	}
 	if v[1] < v[0] || v[3] < v[2] {
 		return
+	}
+	if len(*m) > 0 && v[2] < (*m)[len(*m)-1].vadEnd {
+		*m = (*m)[:0]
 	}
 	*m = append(*m, vadPiece{origStart: v[0], origEnd: v[1], vadStart: v[2], vadEnd: v[3]})
 }
@@ -456,6 +567,7 @@ func (g segment) lines(m timeMap) []Cue {
 		return nil
 	}
 	ws := g.words()
+	spanStart, spanEnd := from, to
 	if len(m) > 0 {
 		// The words' own places in the video replace their distances from the
 		// segment's start, and the segment's span no longer bounds them.
@@ -463,10 +575,11 @@ func (g segment) lines(m timeMap) []Cue {
 			ws[i].from, ws[i].to = m.span(ws[i].cFrom, ws[i].cTo)
 		}
 		if len(ws) > 0 {
-			from, to = 0, max(to, ws[len(ws)-1].to)
+			spanStart, spanEnd = ws[0].from, ws[len(ws)-1].to
+			from, to = 0, max(to, spanEnd)
 		}
 	}
-	short := to-from <= MaxLineMS && len([]rune(text)) <= MaxLineChars
+	short := spanEnd-spanStart <= MaxLineMS && len([]rune(text)) <= MaxLineChars
 	broken := false
 	for _, w := range ws {
 		// A word piece that held half a character cannot be read: the
@@ -474,6 +587,9 @@ func (g segment) lines(m timeMap) []Cue {
 		broken = broken || strings.ContainsRune(w.text, '\uFFFD')
 	}
 	if short || len(ws) < 2 || broken {
+		if len(m) > 0 && len(ws) > 0 && !broken {
+			return []Cue{{StartMS: spanStart, EndMS: max(spanEnd, spanStart+400), Text: text}}
+		}
 		return []Cue{{StartMS: g.Offsets.From, EndMS: g.Offsets.To, Text: text}}
 	}
 	var out []Cue

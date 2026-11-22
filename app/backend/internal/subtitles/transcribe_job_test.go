@@ -327,7 +327,7 @@ func TestSpeechModelsAreNotTranslationModels(t *testing.T) {
 	if kinds["lab-speech"] != builtin.KindSpeech || kinds["lab-vad"] != builtin.KindVAD || kinds["file:lab.gguf"] != "" {
 		t.Fatalf("kinds %v", kinds)
 	}
-	for _, id := range []string{"whisper-large-v3-turbo", "silero-vad-6.2.0"} {
+	for _, id := range []string{"whisper-large-v3-turbo-q8_0", "whisper-large-v3-turbo-q5_0", "whisper-large-v3-turbo", "silero-vad-6.2.0"} {
 		if m, ok := builtin.ByID(id); !ok || m.Kind == "" || len(m.SHA256) != 64 || !strings.HasPrefix(m.URL, "https://huggingface.co/") {
 			t.Fatalf("catalogue entry %s: %+v %v", id, m, ok)
 		}

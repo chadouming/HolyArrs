@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs još nije spremio nijedan titl.",
 	"subtitles.page.done.downloaded": "Preuzeto",
 	"subtitles.page.done.how": "Kako je nastao",
-	"subtitles.page.done.when": "Spremljeno"
+	"subtitles.page.done.when": "Spremljeno",
+	"subtitles.page.pause": "Pauziraj",
+	"subtitles.page.resume": "Nastavi",
+	"subtitles.page.pausedNote": "Pauzirano: pretrage, prijevodi i govor u tekst čekaju u redu. Posao koji je već u tijeku završit će sam.",
+	"subtitles.page.pauseFailed": "Pauzu nije bilo moguće promijeniti"
 }

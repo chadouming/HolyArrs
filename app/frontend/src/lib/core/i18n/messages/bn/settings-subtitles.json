@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "সব কার্ড ({n})",
 	"settings.subtitles.trGPUHint": "CPU-এর চেয়ে অনেক দ্রুত। কন্টেইনারকে --device /dev/dri দিয়ে কার্ড দিলে তা এখানে দেখা যায়।",
 	"settings.subtitles.trThreads": "CPU থ্রেড",
-	"settings.subtitles.trThreadsHint": "ডিফল্টের ({n}) জন্য খালি রাখুন। এই মেশিনে {max}টি আছে।"
+	"settings.subtitles.trThreadsHint": "ডিফল্টের ({n}) জন্য খালি রাখুন। এই মেশিনে {max}টি আছে।",
+	"settings.subtitles.sttAtOnce": "প্রতিটি গ্রাফিক্স কার্ডে একসঙ্গে কতটি ফাইল",
+	"settings.subtitles.sttAtOnceHint": "প্রতিটি কার্ডে একই সময়ে কতটি ভিডিও শোনা হবে। সংখ্যা বাড়ালে কার্ডের মেমরি বেশি লাগে। নতুন সংখ্যা HolyArrs পরের বার চালু হলে কার্যকর হবে।",
+	"settings.subtitles.sttFast": "আরও দ্রুত, সামান্য কম নির্ভুল",
+	"settings.subtitles.sttFastHint": "পাঁচটি তুলনা করার বদলে প্রতিটি লাইনের জন্য একটিই সম্ভাব্য লেখা রাখে। প্রায় এক-চতুর্থাংশ দ্রুত; আরও কয়েকটি শব্দ ভুল আসে।"
 }

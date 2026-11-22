@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "การ์ดทั้งหมด ({n})",
 	"settings.subtitles.trGPUHint": "เร็วกว่า CPU มาก การ์ดจะแสดงที่นี่เมื่อส่งให้คอนเทนเนอร์ด้วย --device /dev/dri",
 	"settings.subtitles.trThreads": "เธรด CPU",
-	"settings.subtitles.trThreadsHint": "เว้นว่างเพื่อใช้ค่าเริ่มต้น ({n}) เครื่องนี้มี {max}"
+	"settings.subtitles.trThreadsHint": "เว้นว่างเพื่อใช้ค่าเริ่มต้น ({n}) เครื่องนี้มี {max}",
+	"settings.subtitles.sttAtOnce": "จำนวนไฟล์ที่ทำพร้อมกันบนการ์ดจอแต่ละใบ",
+	"settings.subtitles.sttAtOnceHint": "จำนวนวิดีโอที่ฟังพร้อมกันบนการ์ดแต่ละใบ ยิ่งมากยิ่งใช้หน่วยความจำของการ์ดมากขึ้น ตัวเลขใหม่จะมีผลเมื่อ HolyArrs เริ่มทำงานครั้งถัดไป",
+	"settings.subtitles.sttFast": "เร็วขึ้น แม่นยำน้อยลงเล็กน้อย",
+	"settings.subtitles.sttFastHint": "เก็บตัวเลือกเดียวสำหรับแต่ละบรรทัดแทนการเปรียบเทียบห้าตัวเลือก เร็วขึ้นราวหนึ่งในสี่ แต่มีคำผิดเพิ่มขึ้นอีกเล็กน้อย"
 }

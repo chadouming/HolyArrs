@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Lahat ng card ({n})",
 	"settings.subtitles.trGPUHint": "Mas mabilis kaysa sa CPU. Lalabas dito ang mga card kapag binigyan ang container gamit ang --device /dev/dri.",
 	"settings.subtitles.trThreads": "Mga CPU thread",
-	"settings.subtitles.trThreadsHint": "Iwanang walang laman para sa default ({n}). May {max} ang makinang ito."
+	"settings.subtitles.trThreadsHint": "Iwanang walang laman para sa default ({n}). May {max} ang makinang ito.",
+	"settings.subtitles.sttAtOnce": "Mga file nang sabay-sabay sa bawat graphics card",
+	"settings.subtitles.sttAtOnceHint": "Kung ilang video ang pinakikinggan nang sabay sa bawat card. Kapag mas marami, mas malaki ang nagagamit sa memory ng card. Magkakabisa ang bagong bilang sa susunod na pagsisimula ng HolyArrs.",
+	"settings.subtitles.sttFast": "Mas mabilis, medyo hindi kasing-eksakto",
+	"settings.subtitles.sttFastHint": "Isang kandidato lang ang itinatabi para sa bawat linya sa halip na magkumpara ng lima. Mga sangkapat na mas mabilis; may ilan pang salitang nagkakamali."
 }

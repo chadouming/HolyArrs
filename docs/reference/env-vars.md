@@ -83,6 +83,17 @@ What to do instead:
 
 ## For experts
 
+<details class="ha-more"><summary>AI and subtitles</summary>
+
+| Variable | What it does | Default |
+| --- | --- | --- |
+| `HOLYARRS_WHISPER_NO_FLASH_ATTN` | `1` turns off Flash Attention on `whisper-server` and `whisper-cli` if an older graphics driver hits Vulkan errors. | off |
+| `HOLYARRS_LLAMA_NO_FLASH_ATTN` | `1` turns off Flash Attention and quantized KV cache on `llama-server` if a graphics driver hits Vulkan errors. | off |
+| `HOLYARRS_OV_MODEL_DIR` | Local OpenVINO IR speech model folder used by the `ai-intel` image instead of downloading into `/config/models/openvino`. | none |
+| `HOLYARRS_OV_VAD_MODEL` | Local Silero VAD `.onnx` model path used by the `ai-intel` image on OpenVINO CPU instead of the built-in `/opt/whisper/silero_vad.onnx`. | `/opt/whisper/silero_vad.onnx` |
+
+</details>
+
 <details class="ha-more"><summary>Metadata</summary>
 
 | Variable | What it does | Default |

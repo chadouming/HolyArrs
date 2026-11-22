@@ -31,6 +31,12 @@ export interface SubtitleSettings {
 	adaptive: boolean;
 	// Make a subtitle from the audio when a file has no text subtitle and a search saved none.
 	transcribe_missing?: boolean;
+	/** Transcripts at the same time on each graphics card, 1 to 3; a new number counts from the next start. */
+	transcribe_at_once?: number;
+	/** One candidate transcript in place of five: quicker, a little less exact. */
+	transcribe_fast?: boolean;
+	/** Chosen speech model id, empty for the default. */
+	transcribe_model?: string;
 	sync_from_fps: number;
 	sync_to_fps: number;
 	sync_step_ms: number;
@@ -169,6 +175,17 @@ export function sizeWords(bytes: number): string {
 export function translatorReady(saved: Pick<Translator, 'kind' | 'url' | 'builtin_model' | 'builtin_available'>, models: ModelView[]): boolean {
 	if (saved.kind === 'builtin') return !!saved.builtin_available && models.some((m) => m.id === saved.builtin_model && m.state === 'present');
 	return saved.kind !== '' && !!saved.url;
+}
+
+// Whether the transcriber has both a speech model and the voice-detection model downloaded.
+export function speechReady(models: ModelView[]): boolean {
+	return models.some((m) => m.kind === 'speech' && m.state === 'present') && models.some((m) => m.kind === 'vad' && m.state === 'present');
+}
+
+// Which speech model is active: the caller's choice if set, else the server's chosen one, else the first downloaded speech model.
+export function activeSpeechModel(selected: string | undefined, models: ModelView[]): string {
+	if (selected) return selected;
+	return models.find((m) => m.kind === 'speech' && m.chosen)?.id ?? models.find((m) => m.kind === 'speech' && m.state === 'present')?.id ?? '';
 }
 
 export interface TranslatorForm extends Translator {

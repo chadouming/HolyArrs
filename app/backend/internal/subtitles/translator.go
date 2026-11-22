@@ -284,13 +284,25 @@ func (s *Service) translatorClient(ctx context.Context) (translate.Client, Trans
 		case t.GPU != "":
 			cards = []string{t.GPU}
 		}
+		devs := s.Devices(ctx)
 		c := &builtin.Client{Name: m.Name, Form: m.Form, HTTP: s.TranslateHTTP}
 		for _, id := range cards {
 			// On a graphics card the model sits in the card's memory and the
 			// runner takes several calls at once, each with a context of its own.
+			memMB := deviceMemoryMB(devs, id)
 			o := cpu
 			o.GPU, o.NeedBytes, o.CacheDir = id, min(o.NeedBytes, gpuNeed), filepath.Join(s.ModelsDir, ".cache")
-			o.Parallel, o.Context = builtin.GPUParallel, builtin.GPUContext
+			o.Parallel = builtin.GPUParallelFor(memMB, m.NeedBytes)
+			o.Context = builtin.GPUContext
+			o.FlashAttn = !builtin.LlamaNoFlashAttn()
+			o.QuantKV = o.FlashAttn
+			if tightVRAM(memMB) {
+				if match := deviceNumber.FindStringSubmatch(id); match != nil {
+					if cardNum, err := strconv.Atoi(match[1]); err == nil {
+						s.speech.stopIdleCard(cardNum)
+					}
+				}
+			}
 			c.Targets = append(c.Targets, builtin.Target{Runner: s.Runners.Runner(id), Opts: o})
 		}
 		if len(c.Targets) == 0 {

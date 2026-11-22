@@ -124,12 +124,16 @@
 	"settings.subtitles.sttSwitch": "Make subtitles from the audio when a file has none",
 	"settings.subtitles.sttSwitchHint": "Runs when a search saves nothing and the file has no text subtitle in any language. The subtitle is in the language that is spoken; other languages are made from it only where Translate from allows.",
 	"settings.subtitles.sttReady": "Ready. It runs on the graphics card chosen for the built-in translator, or on the CPU.",
-	"settings.subtitles.sttNeedsModels": "Download both models to turn this on.",
+	"settings.subtitles.sttNeedsModels": "Download a speech model and the voice-detection model to turn this on.",
 	"settings.subtitles.trModelDelete": "Delete",
 	"settings.subtitles.trGPU": "Graphics card",
 	"settings.subtitles.trGPUNone": "None, use the CPU",
 	"settings.subtitles.trGPUAll": "All cards ({n})",
 	"settings.subtitles.trGPUHint": "Much faster than the CPU. Cards show here when the container is given one with --device /dev/dri.",
 	"settings.subtitles.trThreads": "CPU threads",
-	"settings.subtitles.trThreadsHint": "Empty for the default ({n}). This machine has {max}."
+	"settings.subtitles.trThreadsHint": "Empty for the default ({n}). This machine has {max}.",
+	"settings.subtitles.sttAtOnce": "Files at once on each graphics card",
+	"settings.subtitles.sttAtOnceHint": "How many videos are listened to at the same time on each card. More uses more of the card's memory. A new number counts from the next start of HolyArrs.",
+	"settings.subtitles.sttFast": "Quicker, a little less exact",
+	"settings.subtitles.sttFastHint": "Keeps one candidate for each line in place of comparing five. About a quarter quicker; a few more words come out wrong."
 }

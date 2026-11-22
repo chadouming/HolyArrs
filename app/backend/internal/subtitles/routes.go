@@ -51,6 +51,7 @@ func (a *Handlers) Routes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/settings/subtitles/transcriber", a.getTranscriber)
 	m.HandleFunc("POST /api/v1/subtitles/search", a.searchSubtitles)
 	m.HandleFunc("GET /api/v1/subtitles/overview", a.subtitlesOverview)
+	m.HandleFunc("PUT /api/v1/subtitles/pause", a.putPause)
 	m.HandleFunc("GET /api/v1/subtitles/missing", a.missingSubtitles)
 	m.HandleFunc("POST /api/v1/subtitles/missing/search", a.searchMissingSubtitles)
 	m.HandleFunc("POST /api/v1/files/{id}/subtitles/choices", a.subtitleChoices)

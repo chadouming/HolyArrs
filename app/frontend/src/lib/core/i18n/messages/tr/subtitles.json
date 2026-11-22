@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs henüz bir altyazı kaydetmedi.",
 	"subtitles.page.done.downloaded": "İndirildi",
 	"subtitles.page.done.how": "Nasıl oluşturuldu",
-	"subtitles.page.done.when": "Kaydedildi"
+	"subtitles.page.done.when": "Kaydedildi",
+	"subtitles.page.pause": "Duraklat",
+	"subtitles.page.resume": "Sürdür",
+	"subtitles.page.pausedNote": "Duraklatıldı: aramalar, çeviriler ve sesi yazıya dökme işleri kuyrukta bekliyor. Çalışmakta olan iş kendiliğinden biter.",
+	"subtitles.page.pauseFailed": "Duraklatma değiştirilemedi"
 }

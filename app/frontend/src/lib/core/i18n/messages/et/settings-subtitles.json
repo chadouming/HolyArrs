@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Kõik kaardid ({n})",
 	"settings.subtitles.trGPUHint": "Palju kiirem kui CPU. Kaardid ilmuvad siia, kui konteinerile antakse see valikuga --device /dev/dri.",
 	"settings.subtitles.trThreads": "CPU lõimed",
-	"settings.subtitles.trThreadsHint": "Tühi vaikeväärtuse ({n}) jaoks. Sellel masinal on {max}."
+	"settings.subtitles.trThreadsHint": "Tühi vaikeväärtuse ({n}) jaoks. Sellel masinal on {max}.",
+	"settings.subtitles.sttAtOnce": "Faile korraga igal graafikakaardil",
+	"settings.subtitles.sttAtOnceHint": "Mitut videot igal kaardil samal ajal kuulatakse. Suurem arv kasutab rohkem kaardi mälu. Uus arv hakkab kehtima HolyArrsi järgmisel käivitamisel.",
+	"settings.subtitles.sttFast": "Kiirem, veidi vähem täpne",
+	"settings.subtitles.sttFastHint": "Hoiab iga rea kohta alles ühe variandi, selle asemel et võrrelda viit. Umbes veerandi võrra kiirem; mõni sõna rohkem tuleb valesti."
 }

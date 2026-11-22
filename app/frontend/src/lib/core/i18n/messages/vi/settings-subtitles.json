@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Tất cả các card ({n})",
 	"settings.subtitles.trGPUHint": "Nhanh hơn CPU rất nhiều. Card hiện ở đây khi container được cấp một card bằng --device /dev/dri.",
 	"settings.subtitles.trThreads": "Luồng CPU",
-	"settings.subtitles.trThreadsHint": "Để trống để dùng mặc định ({n}). Máy này có {max}."
+	"settings.subtitles.trThreadsHint": "Để trống để dùng mặc định ({n}). Máy này có {max}.",
+	"settings.subtitles.sttAtOnce": "Số tệp xử lý cùng lúc trên mỗi card đồ họa",
+	"settings.subtitles.sttAtOnceHint": "Số video được nghe cùng một lúc trên mỗi card. Càng nhiều thì càng tốn bộ nhớ của card. Con số mới có hiệu lực từ lần khởi động HolyArrs tiếp theo.",
+	"settings.subtitles.sttFast": "Nhanh hơn, kém chính xác hơn một chút",
+	"settings.subtitles.sttFastHint": "Giữ một phương án cho mỗi dòng thay vì so sánh năm phương án. Nhanh hơn khoảng một phần tư; có thêm vài từ bị sai."
 }

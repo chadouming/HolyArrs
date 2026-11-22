@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs עדיין לא שמר אף כתובית.",
 	"subtitles.page.done.downloaded": "הורד",
 	"subtitles.page.done.how": "איך זה נוצר",
-	"subtitles.page.done.when": "נשמר"
+	"subtitles.page.done.when": "נשמר",
+	"subtitles.page.pause": "השהיה",
+	"subtitles.page.resume": "המשך",
+	"subtitles.page.pausedNote": "מושהה: חיפושים, תרגומים ותמלול מהשמע ממתינים בתור. משימה שכבר רצה תסתיים מעצמה.",
+	"subtitles.page.pauseFailed": "לא ניתן היה לשנות את ההשהיה"
 }

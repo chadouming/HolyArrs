@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "Το HolyArrs δεν έχει αποθηκεύσει ακόμη κανέναν υπότιτλο.",
 	"subtitles.page.done.downloaded": "Κατεβασμένο",
 	"subtitles.page.done.how": "Πώς δημιουργήθηκε",
-	"subtitles.page.done.when": "Αποθηκεύτηκε"
+	"subtitles.page.done.when": "Αποθηκεύτηκε",
+	"subtitles.page.pause": "Παύση",
+	"subtitles.page.resume": "Συνέχεια",
+	"subtitles.page.pausedNote": "Σε παύση: οι αναζητήσεις, οι μεταφράσεις και η ομιλία σε κείμενο περιμένουν στην ουρά. Μια εργασία που ήδη εκτελείται ολοκληρώνεται μόνη της.",
+	"subtitles.page.pauseFailed": "Δεν ήταν δυνατή η αλλαγή της παύσης"
 }

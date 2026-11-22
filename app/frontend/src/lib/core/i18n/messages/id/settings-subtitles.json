@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Semua kartu ({n})",
 	"settings.subtitles.trGPUHint": "Jauh lebih cepat daripada CPU. Kartu muncul di sini saat kontainer diberi satu dengan --device /dev/dri.",
 	"settings.subtitles.trThreads": "Thread CPU",
-	"settings.subtitles.trThreadsHint": "Kosongkan untuk bawaan ({n}). Mesin ini punya {max}."
+	"settings.subtitles.trThreadsHint": "Kosongkan untuk bawaan ({n}). Mesin ini punya {max}.",
+	"settings.subtitles.sttAtOnce": "File sekaligus di tiap kartu grafis",
+	"settings.subtitles.sttAtOnceHint": "Berapa banyak video yang didengarkan pada saat yang sama di tiap kartu. Makin banyak, makin besar memori kartu yang terpakai. Angka baru berlaku saat HolyArrs dimulai berikutnya.",
+	"settings.subtitles.sttFast": "Lebih cepat, sedikit kurang tepat",
+	"settings.subtitles.sttFastHint": "Menyimpan satu kandidat untuk tiap baris alih-alih membandingkan lima. Sekitar seperempat lebih cepat; beberapa kata lagi jadi salah."
 }

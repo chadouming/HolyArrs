@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Minden kártya ({n})",
 	"settings.subtitles.trGPUHint": "Sokkal gyorsabb, mint a CPU. A kártyák akkor jelennek meg itt, ha a konténer kap egyet a --device /dev/dri kapcsolóval.",
 	"settings.subtitles.trThreads": "CPU-szálak",
-	"settings.subtitles.trThreadsHint": "Üresen az alapértelmezett ({n}). Ebben a gépben {max} van."
+	"settings.subtitles.trThreadsHint": "Üresen az alapértelmezett ({n}). Ebben a gépben {max} van.",
+	"settings.subtitles.sttAtOnce": "Egyszerre feldolgozott fájlok videokártyánként",
+	"settings.subtitles.sttAtOnceHint": "Hány videót hallgat meg egyszerre egy-egy kártya. A nagyobb szám többet használ a kártya memóriájából. Az új szám a HolyArrs következő indításától érvényes.",
+	"settings.subtitles.sttFast": "Gyorsabb, kicsit kevésbé pontos",
+	"settings.subtitles.sttFastHint": "Soronként egy változatot tart meg, ahelyett hogy ötöt hasonlítana össze. Nagyjából negyedével gyorsabb; néhány szóval több lesz hibás."
 }

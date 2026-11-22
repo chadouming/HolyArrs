@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	accountMissing,
+	activeSpeechModel,
 	fromWords,
 	jobsDone,
 	kindCovers,
@@ -18,6 +19,7 @@ import {
 	siteForm,
 	siteState,
 	sourceLabel,
+	speechReady,
 	syncBody,
 	wantLabel,
 	wishLine,
@@ -26,6 +28,7 @@ import {
 	translateBody,
 	translateSources,
 	translatorBody,
+	type ModelView,
 	type SiteKind,
 	type SubtitleRow
 } from './api.ts';
@@ -187,5 +190,43 @@ describe('translation', () => {
 	it('sends the machine-made switch with a site', () => {
 		const k: SiteKind = { kind: 'opensubtitles', name: 'OpenSubtitles', movies: true, shows: true, needs_account: false };
 		expect(siteBody({ ...siteForm(k), machine_made: true }).machine_made).toBe(true);
+	});
+});
+
+describe('transcriber models', () => {
+	const model = (o: Partial<ModelView>): ModelView => ({
+		id: 'm',
+		name: 'M',
+		size: 100,
+		need: 200,
+		license: 'MIT',
+		own: false,
+		state: 'missing',
+		progress: 0,
+		fits: true,
+		chosen: false,
+		kind: 'speech',
+		...o
+	});
+
+	it('needs both a speech model and the vad model to be ready', () => {
+		expect(speechReady([])).toBe(false);
+		expect(speechReady([model({ id: 's1', state: 'present' }), model({ id: 's2', state: 'present' })])).toBe(false);
+		expect(speechReady([model({ id: 'vad', kind: 'vad', state: 'present' })])).toBe(false);
+		expect(speechReady([model({ id: 's1', state: 'present' }), model({ id: 'vad', kind: 'vad', state: 'downloading' })])).toBe(false);
+		expect(speechReady([model({ id: 's1', state: 'present' }), model({ id: 'vad', kind: 'vad', state: 'present' })])).toBe(true);
+	});
+
+	it('picks the active speech model from selection, server choice, or first present', () => {
+		const models = [
+			model({ id: 'q5', state: 'present', chosen: false }),
+			model({ id: 'q8', state: 'present', chosen: true }),
+			model({ id: 'vad', kind: 'vad', state: 'present', chosen: true })
+		];
+		expect(activeSpeechModel('q5', models)).toBe('q5');
+		expect(activeSpeechModel('', models)).toBe('q8');
+		expect(activeSpeechModel(undefined, models)).toBe('q8');
+		expect(activeSpeechModel('', [model({ id: 'q5', state: 'present' }), model({ id: 'f16', state: 'missing' }), model({ id: 'vad', kind: 'vad', state: 'present', chosen: true })])).toBe('q5');
+		expect(activeSpeechModel('', [model({ id: 'q5', state: 'missing' }), model({ id: 'vad', kind: 'vad', state: 'present', chosen: true })])).toBe('');
 	});
 });

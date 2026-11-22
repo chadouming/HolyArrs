@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs heeft nog geen ondertitel opgeslagen.",
 	"subtitles.page.done.downloaded": "Gedownload",
 	"subtitles.page.done.how": "Hoe het is gemaakt",
-	"subtitles.page.done.when": "Opgeslagen"
+	"subtitles.page.done.when": "Opgeslagen",
+	"subtitles.page.pause": "Pauzeren",
+	"subtitles.page.resume": "Hervatten",
+	"subtitles.page.pausedNote": "Gepauzeerd: zoekopdrachten, vertalingen en spraak naar tekst wachten in de wachtrij. Een taak die al loopt, wordt vanzelf afgerond.",
+	"subtitles.page.pauseFailed": "De pauze kon niet worden gewijzigd"
 }

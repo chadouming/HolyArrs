@@ -596,6 +596,7 @@ PUT /api/v1/settings/url-base auth=settings scope=write assurance=false part=cor
 PUT /api/v1/settings/watch-history auth=owner scope=admin assurance=false part=media
 PUT /api/v1/sources/{id} auth=settings scope=write assurance=false part=core
 PUT /api/v1/subtitle-sites/{id} auth=settings scope=write assurance=false part=subtitles
+PUT /api/v1/subtitles/pause auth=manage_library scope=write assurance=false part=subtitles
 PUT /api/v1/titles/{id} auth=manage_library scope=write assurance=false part=title
 PUT /api/v1/titles/{id}/artist auth=manage_library scope=write assurance=false part=music
 PUT /api/v1/titles/{id}/files/{fid}/choices auth=manage_library scope=write assurance=false part=title

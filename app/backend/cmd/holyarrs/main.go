@@ -319,7 +319,7 @@ func serve(ctx context.Context, c config, o runOpts) error {
 	// are checked too.
 	logFolderCheck(ctx, s.Read(), c.SavePath, c.ConfigDir)
 	hub := webserver.NewLiveHub(webserver.LiveOptions{Merge: downloads.MergePatch})
-	pools := jobs.DefaultPools
+	pools := speechPools(ctx, s)
 	if c.SafeMode {
 		pools = map[jobs.Pool]int{jobs.PoolCore: jobs.DefaultPools[jobs.PoolCore]}
 	}
@@ -546,8 +546,8 @@ func serve(ctx context.Context, c config, o runOpts) error {
 		return false, nil, nil
 	})
 	// Subtitles: searches after imports and better copies, two schedules.
-	subs := newSubtitles(&subtitles.Service{Store: s, Live: hub, Vault: vault}, c.ConfigDir)
-	defer subs.Runners.Stop()
+	subs := newSubtitles(ctx, &subtitles.Service{Store: s, Live: hub, Vault: vault}, c.ConfigDir, q, pc)
+	defer subs.StopRunners()
 	subs.Register(q)
 	if !c.SafeMode {
 		s.OnEvent(func(e domain.Event) {

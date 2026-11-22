@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Toate plăcile ({n})",
 	"settings.subtitles.trGPUHint": "Mult mai rapid decât CPU. Plăcile apar aici când containerul primește una cu --device /dev/dri.",
 	"settings.subtitles.trThreads": "Fire CPU",
-	"settings.subtitles.trThreadsHint": "Gol pentru valoarea implicită ({n}). Această mașină are {max}."
+	"settings.subtitles.trThreadsHint": "Gol pentru valoarea implicită ({n}). Această mașină are {max}.",
+	"settings.subtitles.sttAtOnce": "Fișiere simultan pe fiecare placă video",
+	"settings.subtitles.sttAtOnceHint": "Câte videoclipuri sunt ascultate în același timp pe fiecare placă. Mai multe folosesc mai mult din memoria plăcii. Un număr nou se aplică de la următoarea pornire a HolyArrs.",
+	"settings.subtitles.sttFast": "Mai rapid, puțin mai puțin exact",
+	"settings.subtitles.sttFastHint": "Păstrează o singură variantă pentru fiecare linie în loc să compare cinci. Cu aproximativ un sfert mai rapid; încă vreo câteva cuvinte ies greșit."
 }

@@ -37,6 +37,7 @@
 	let error = $state('');
 	let busyRow = $state('');
 	let searchingAll = $state(false);
+	let pausing = $state(false);
 	let art = $state<Map<number, string>>(new Map());
 
 	const num = (n: number) => n.toLocaleString(appLocale());
@@ -163,6 +164,21 @@
 		}
 	}
 
+	// Pause holds searches, translations and speech to text in the queue; what runs now ends by itself.
+	async function togglePause() {
+		if (!over || pausing) return;
+		pausing = true;
+		try {
+			const r = await api.put<{ paused: boolean }>('/subtitles/pause', { paused: !over.paused });
+			over = { ...over, paused: r.paused };
+			void loadJobs();
+		} catch (e) {
+			toasts.push(tr('subtitles.page.pauseFailed'), 'fail', { body: message(e) });
+		} finally {
+			pausing = false;
+		}
+	}
+
 	async function searchOne(r: NeedRow) {
 		busyRow = rowKey(r);
 		try {
@@ -198,6 +214,9 @@
 		{#if canSettings}
 			<span class="tp-cap"><Button icon="settings" href={to('/settings/subtitles')} data-testid="subtitles-settings">{tr('subtitles.page.settings')}</Button></span>
 		{/if}
+		{#if over}
+			<span class="tp-cap"><Button icon={over.paused ? 'play' : 'pause'} onclick={togglePause} busy={pausing} aria-pressed={over.paused} data-testid="subtitles-pause">{over.paused ? tr('subtitles.page.resume') : tr('subtitles.page.pause')}</Button></span>
+		{/if}
 		<span class="tp-cap">
 			<Button variant="primary" icon="search" onclick={searchAll} disabled={!over || over.missing === 0} busy={searchingAll} data-testid="subtitles-search-all">{tr('library.missingSubs.searchAll')}</Button>
 		</span>
@@ -208,6 +227,7 @@
 	{:else}
 	<PageLoader loading={!loaded} label={tr('subtitles.page.loading')}>
 	{#if over}
+		{#if over.paused}<p class="tp-msg" role="status" data-testid="subtitles-paused"><Icon name="pause" size={16} />{tr('subtitles.page.pausedNote')}</p>{/if}
 		<div class="tiles" data-testid="subtitles-tiles">
 			<button type="button" class="tile tp-sheet" class:on={need === ''} aria-pressed={need === ''} onclick={() => pick('')} data-testid="tile-missing">
 				<span class="lab"><Icon name="subtitle" size={16} />{tr('subtitles.page.tile.missing')}</span>

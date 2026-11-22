@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs har ikke gemt nogen undertekster endnu.",
 	"subtitles.page.done.downloaded": "Downloadet",
 	"subtitles.page.done.how": "Sådan blev den lavet",
-	"subtitles.page.done.when": "Gemt"
+	"subtitles.page.done.when": "Gemt",
+	"subtitles.page.pause": "Sæt på pause",
+	"subtitles.page.resume": "Genoptag",
+	"subtitles.page.pausedNote": "På pause: søgninger, oversættelser og tale til tekst venter i køen. Et job, der allerede kører, bliver færdigt af sig selv.",
+	"subtitles.page.pauseFailed": "Pausen kunne ikke ændres"
 }

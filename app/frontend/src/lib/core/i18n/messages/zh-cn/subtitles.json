@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs 尚未保存任何字幕。",
 	"subtitles.page.done.downloaded": "已下载",
 	"subtitles.page.done.how": "生成方式",
-	"subtitles.page.done.when": "保存时间"
+	"subtitles.page.done.when": "保存时间",
+	"subtitles.page.pause": "暂停",
+	"subtitles.page.resume": "继续",
+	"subtitles.page.pausedNote": "已暂停：搜索、翻译和语音转文字会在队列中等待。正在运行的任务会自行完成。",
+	"subtitles.page.pauseFailed": "无法更改暂停状态"
 }

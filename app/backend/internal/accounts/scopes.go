@@ -246,6 +246,7 @@ var RoutePerms = map[string]webserver.Perm{
 	"POST /api/v1/subtitles/search":                  webserver.PermManageLibrary,
 	"GET /api/v1/subtitles/missing":                  webserver.PermManageLibrary,
 	"GET /api/v1/subtitles/overview":                 webserver.PermManageLibrary,
+	"PUT /api/v1/subtitles/pause":                    webserver.PermManageLibrary,
 	"POST /api/v1/subtitles/missing/search":          webserver.PermManageLibrary,
 	"POST /api/v1/files/{id}/subtitles/choices":      webserver.PermManageLibrary,
 	"POST /api/v1/files/{id}/subtitles/choose":       webserver.PermManageLibrary,

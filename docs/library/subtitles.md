@@ -42,6 +42,8 @@ Open **Library > Missing subtitles**. Each row is a movie or episode that lacks 
 - **Subtitle sites** shows each site's state and how many of its downloads for today are used.
 - **Done** lists the newest subtitles HolyArrs saved that are still beside their videos, and says how each was made: downloaded from a site, translated, or made from the audio (speech to text). The counts beside the heading cover all of them, not only the ones listed.
 
+**Pause** holds subtitle searches, translations and subtitles from the audio in the queue, for when you need the graphics card or the sites' daily downloads for something else. A job that is running ends by itself and nothing new starts; model downloads go on. The pause lasts a restart. **Resume** lets the queue run again.
+
 Click a number to narrow the list to those rows. Each row says what happens next, and has **Search** and, for a file with nothing to read, **Make from audio**.
 
 ## Fix one movie or episode
@@ -113,13 +115,21 @@ The built-in translator needs the HolyArrs image that holds the model runner. Th
 docker build -f deploy/Dockerfile --target ai -t holyarrs:ai .
 ```
 
-It is the same HolyArrs with the same settings and `/config` folder, on a larger image (about 420 MB). It is built for amd64 and arm64. Like the usual image it holds no shell and no system tools: only HolyArrs, the runners, and the files they load.
+It is the same HolyArrs with the same settings and `/config` folder, on a larger image (about 420 MB). It is built for amd64 and arm64. Like the usual image it holds no shell and no system tools: only HolyArrs, the runners, and the files they load. Its Vulkan drivers come from Fedora 44 Mesa 26.2+ (supporting Intel Arc B580 Battlemage as well as older Intel, AMD and NVIDIA cards).
 
 A good part of that size is the graphics drivers. The image holds Mesa's Vulkan drivers for Intel, AMD and NVIDIA (nouveau) cards. AMD's needs about 150 MB of its own. To leave out the cards you do not have, name the ones to keep (`intel`, `intel_hasvk` for Intel before Gen 9, `radeon`, `nouveau`):
 
 ```
 docker build -f deploy/Dockerfile --target ai --build-arg VULKAN_DRIVERS="intel" -t holyarrs:ai .
 ```
+
+For Intel Arc graphics cards (Battlemage B580, Alchemist A-series and integrated Arc GPUs), an `ai-intel` image is also offered (built on Fedora 44 for amd64):
+
+```
+docker build -f deploy/Dockerfile --target ai-intel -t holyarrs:ai-intel .
+```
+
+It keeps Vulkan (`llama-server`) for translation and swaps the speech server to OpenVINO GenAI (`GPU`, Level Zero and XMX) with Silero VAD (ONNX on OpenVINO CPU) for faster Intel Arc transcription, using Fedora's native Intel Compute Runtime, Level Zero, and Mesa 26.2+ Vulkan packages. It caches converted OpenVINO IR models under `/config/models/openvino`, needs `--device /dev/dri` on the container, and needs Linux kernel 6.12+ with the `xe` driver for Battlemage B580 cards.
 
 | Option | What it does |
 |---|---|
@@ -143,14 +153,25 @@ In **Settings > Subtitles > Subtitles from the audio**:
 | Option | What it does |
 |---|---|
 | **Make subtitles from the audio when a file has none** | Off by default. On, a search that saves nothing for a file with no text subtitle in any language asks for a transcript. It does not wait for the sites: it also runs when their downloads for the day are used up, when they are paused, or when none is set up. |
-| **Models** | Two downloads: Whisper large-v3-turbo (about 1.6 GB) and a small voice-detection model. Both are needed. |
+| **Models** | One speech model plus a small voice-detection model (both are needed). Pick from three Whisper large-v3-turbo sizes: **Q8_0** (default, about 874 MB), **Q5_0** (about 574 MB, suited to 4 GB cards such as Intel Arc A310 or integrated GPUs), or **FP16** (about 1.62 GB, full precision). |
 
 - **Which audio:** the track tagged with a language you want, in the order you want them; else the title's original language; else the first track. HolyArrs then listens to three samples to hear what is really spoken, so a wrong tag does not give a subtitle in the wrong language. If it cannot tell, nothing is saved.
 - **Which language:** the subtitle is in the language that is spoken. Your other languages are made from it by the translator, where a language's **Translate from** names that language or is **Any language the video has**.
 - **Replaced later:** a subtitle a person made replaces a transcript when a site has one, the way it replaces a translated file.
 - **By hand:** **Make from audio** on a title's subtitle panel does one file, whatever the switch says.
-- **One at a time.** It uses the graphics card chosen for the built-in translator, or the CPU, which is much slower.
+- **Automatic memory scaling:** HolyArrs reads each card's free memory and scales concurrent speech slots across Intel Arc cards (from 12 GB cards such as Arc B580 down to 4 GB cards such as Arc A310). On 4 to 8 GB cards, speech transcription and built-in translation coordinate card memory so they do not run out of VRAM together.
 - **Not tried again by itself** when no speech was found or the language could not be told. A failure that may pass is tried again a day later, three times at most.
+
+#### Speed
+
+A subtitle from the audio takes a few minutes for each video. Four things decide how fast a list or a long film goes:
+
+- **Graphics cards.** Videos are spread over the cards chosen for the built-in translator: one card, or all of them with **All cards**.
+- **Files at once on each graphics card.** From 1 to 3 (capped automatically by the card's VRAM). On a 12 GB card two at once got through about half as many again as one after the other, and three about twice as many; a fourth made everything slower, because the card ran out of memory. Each one keeps its own copy of the speech model on the card, so a 4 to 8 GB card, or one that also runs the translator, fits fewer slots. A new number counts from the next start of HolyArrs.
+- **Parallel silence-chunked transcription.** When a single long video is running and other GPU slots are idle, HolyArrs splits the audio on silence and transcribes chunks across those idle slots in parallel.
+- **Quicker, a little less exact.** Keeps one candidate for each line in place of comparing five: about a quarter quicker, with a few more words wrong.
+
+The speech model stays loaded on a card between videos and is let go after five idle minutes, which gives the card's memory back.
 
 #### Names and terms
 
@@ -165,7 +186,7 @@ There is room for about a hundred terms.
 
 - On clear speech most lines are right. On fast, slang-heavy dialogue about four words in five matched a subtitle made by a person.
 - Names it was never told are often misspelled.
-- After a long stretch of music or silence, a few lines can show early.
+- Lines after a long stretch of music or silence stay lined up through per-word voice-detection mapping and silence-bounded chunking.
 - A file with several audio tracks in the language you want gets the first of them transcribed, which may be a commentary.
 - Not measured yet: how much gathered terms help, and how good a transcript of Japanese audio and its translation are.
 

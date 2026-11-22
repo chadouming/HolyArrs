@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "Wala pang na-save na subtitle ang HolyArrs.",
 	"subtitles.page.done.downloaded": "Na-download",
 	"subtitles.page.done.how": "Paano ito ginawa",
-	"subtitles.page.done.when": "Na-save"
+	"subtitles.page.done.when": "Na-save",
+	"subtitles.page.pause": "I-pause",
+	"subtitles.page.resume": "Ituloy",
+	"subtitles.page.pausedNote": "Naka-pause: naghihintay sa pila ang mga paghahanap, pag-translate at speech to text. Kusang matatapos ang job na tumatakbo na.",
+	"subtitles.page.pauseFailed": "Hindi nabago ang pause"
 }

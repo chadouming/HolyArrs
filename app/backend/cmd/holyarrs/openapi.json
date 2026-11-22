@@ -28931,6 +28931,45 @@
         "x-holyarrs-scope": "read"
       }
     },
+    "/api/v1/subtitles/pause": {
+      "put": {
+        "description": "Paused, subtitle searches, translations and subtitles from the audio wait in the queue; a job that is running ends by itself and nothing new starts. Model downloads go on. The pause lasts a restart.",
+        "operationId": "putSubtitlesPause",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "paused": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "paused"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Whether subtitle work is paused now."
+          },
+          "400": {
+            "description": "The body could not be read."
+          }
+        },
+        "summary": "Pause or resume subtitle work",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
     "/api/v1/subtitles/search": {
       "post": {
         "description": "Queues a subtitle search for every File of a title (or one episode), or one File.",

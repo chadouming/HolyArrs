@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs ei ole vielä tallentanut yhtään tekstitystä.",
 	"subtitles.page.done.downloaded": "Ladattu",
 	"subtitles.page.done.how": "Miten se tehtiin",
-	"subtitles.page.done.when": "Tallennettu"
+	"subtitles.page.done.when": "Tallennettu",
+	"subtitles.page.pause": "Keskeytä",
+	"subtitles.page.resume": "Jatka",
+	"subtitles.page.pausedNote": "Keskeytetty: haut, käännökset ja puhe tekstiksi odottavat jonossa. Jo käynnissä oleva työ valmistuu itsestään.",
+	"subtitles.page.pauseFailed": "Keskeytystä ei voitu muuttaa"
 }

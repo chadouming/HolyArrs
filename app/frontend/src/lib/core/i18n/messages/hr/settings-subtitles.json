@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Sve kartice ({n})",
 	"settings.subtitles.trGPUHint": "Puno brže od CPU-a. Kartice se ovdje prikazuju kad kontejner dobije jednu putem --device /dev/dri.",
 	"settings.subtitles.trThreads": "CPU dretve",
-	"settings.subtitles.trThreadsHint": "Prazno za zadanu vrijednost ({n}). Ovo računalo ima ih {max}."
+	"settings.subtitles.trThreadsHint": "Prazno za zadanu vrijednost ({n}). Ovo računalo ima ih {max}.",
+	"settings.subtitles.sttAtOnce": "Datoteka odjednom na svakoj grafičkoj kartici",
+	"settings.subtitles.sttAtOnceHint": "Koliko se videa sluša istodobno na svakoj kartici. Više ih troši više memorije kartice. Novi broj vrijedi od sljedećeg pokretanja HolyArrsa.",
+	"settings.subtitles.sttFast": "Brže, malo manje točno",
+	"settings.subtitles.sttFastHint": "Za svaki redak zadržava jedan prijedlog umjesto da uspoređuje pet. Oko četvrtinu brže; nekoliko riječi više ispadne pogrešno."
 }

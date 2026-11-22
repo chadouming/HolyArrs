@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/mediafiles"
@@ -60,6 +61,10 @@ type Service struct {
 	// Enqueue adds a Job to the jobs queue. When nil, nothing runs later.
 	Enqueue func(ctx context.Context, kind string, subj *domain.Subject, params map[string]any, key string) error
 
+	// speech hands out the places transcripts run in; see speech.go.
+	speech speechPlaces
+	// paused holds subtitle work in the queue; see pause.go.
+	paused    atomic.Bool
 	mu        sync.Mutex
 	clients   map[int64]cached
 	downloads map[string]*download // model downloads queued or running, by model id

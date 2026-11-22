@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs пока не сохранил ни одних субтитров.",
 	"subtitles.page.done.downloaded": "Скачано",
 	"subtitles.page.done.how": "Как получено",
-	"subtitles.page.done.when": "Сохранено"
+	"subtitles.page.done.when": "Сохранено",
+	"subtitles.page.pause": "Приостановить",
+	"subtitles.page.resume": "Возобновить",
+	"subtitles.page.pausedNote": "Приостановлено: поиск, перевод и распознавание речи ждут в очереди. Задание, которое уже выполняется, завершится само.",
+	"subtitles.page.pauseFailed": "Не удалось изменить паузу"
 }

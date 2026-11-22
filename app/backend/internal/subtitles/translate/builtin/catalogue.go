@@ -44,14 +44,34 @@ var Catalogue = []Model{
 		Form:      FormNoThink,
 	},
 	{
+		ID:        "whisper-large-v3-turbo-q8_0",
+		Name:      "Whisper large-v3-turbo (Q8_0)",
+		Kind:      KindSpeech,
+		URL:       "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q8_0.bin",
+		SHA256:    "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
+		License:   "MIT",
+		Size:      874188075,
+		NeedBytes: 1600 << 20,
+	},
+	{
+		ID:        "whisper-large-v3-turbo-q5_0",
+		Name:      "Whisper large-v3-turbo (Q5_0)",
+		Kind:      KindSpeech,
+		URL:       "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin",
+		SHA256:    "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+		License:   "MIT",
+		Size:      574041195,
+		NeedBytes: 1100 << 20,
+	},
+	{
 		ID:        "whisper-large-v3-turbo",
-		Name:      "Whisper large-v3-turbo",
+		Name:      "Whisper large-v3-turbo (FP16)",
 		Kind:      KindSpeech,
 		URL:       "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo.bin",
 		SHA256:    "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
 		License:   "MIT",
 		Size:      1624555275,
-		NeedBytes: 3 << 30,
+		NeedBytes: 2500 << 20,
 	},
 	{
 		ID:        "silero-vad-6.2.0",
@@ -79,6 +99,17 @@ func ByKind(kind string) (Model, bool) {
 		}
 	}
 	return Model{}, false
+}
+
+// AllByKind returns all catalogue models matching kind.
+func AllByKind(kind string) []Model {
+	var out []Model
+	for _, m := range Catalogue {
+		if m.Kind == kind {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // ByID finds a catalogue model.

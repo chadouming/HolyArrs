@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs dar neišsaugojo nė vienų subtitrų.",
 	"subtitles.page.done.downloaded": "Atsisiųsta",
 	"subtitles.page.done.how": "Kaip sukurta",
-	"subtitles.page.done.when": "Išsaugota"
+	"subtitles.page.done.when": "Išsaugota",
+	"subtitles.page.pause": "Pristabdyti",
+	"subtitles.page.resume": "Tęsti",
+	"subtitles.page.pausedNote": "Pristabdyta: paieškos, vertimai ir kalbos vertimas į tekstą laukia eilėje. Jau vykdoma užduotis užsibaigia pati.",
+	"subtitles.page.pauseFailed": "Nepavyko pakeisti pristabdymo"
 }

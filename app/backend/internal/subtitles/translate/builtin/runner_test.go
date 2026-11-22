@@ -284,3 +284,77 @@ func TestDevicesParsesTheList(t *testing.T) {
 		t.Fatal("a missing runner listed devices")
 	}
 }
+
+func TestGPUFlashAttnAndQuantKVFlags(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "args")
+	t.Setenv("FAKE_ARGS_FILE", file)
+	r := newRunner(t)
+	o := opts("a.gguf")
+	o.GPU = "Vulkan0"
+	o.FlashAttn = true
+	o.QuantKV = true
+	if _, _, err := r.Ensure(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	a := argsOf(t, file)
+	for _, want := range []string{" --flash-attn on ", " --cache-type-k q8_0 ", " --cache-type-v q8_0 "} {
+		if !strings.Contains(a, want) {
+			t.Fatalf("args lack %q: %s", want, a)
+		}
+	}
+	r.Used()
+
+	t.Setenv("HOLYARRS_LLAMA_NO_FLASH_ATTN", "1")
+	o.ModelPath = "b.gguf" // force restart
+	if _, _, err := r.Ensure(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	a = argsOf(t, file)
+	if strings.Contains(a, "--flash-attn") || strings.Contains(a, "--cache-type-k") {
+		t.Fatalf("HOLYARRS_LLAMA_NO_FLASH_ATTN did not disable flags: %s", a)
+	}
+}
+
+func TestGPUParallelFor(t *testing.T) {
+	if got := GPUParallelFor(0, 3<<30); got != GPUParallel {
+		t.Fatalf("unknown memory = %d, want %d", got, GPUParallel)
+	}
+	small := []struct {
+		mb, want int
+	}{{12216, 8}, {8192, 6}, {6144, 4}, {4096, 2}}
+	for _, c := range small {
+		if got := GPUParallelFor(c.mb, 3<<30); got != c.want {
+			t.Fatalf("small model %d MB = %d, want %d", c.mb, got, c.want)
+		}
+	}
+	large := []struct {
+		mb, want int
+	}{{12216, 6}, {8192, 4}, {6144, 2}, {4096, 1}}
+	for _, c := range large {
+		if got := GPUParallelFor(c.mb, 7<<30); got != c.want {
+			t.Fatalf("large model %d MB = %d, want %d", c.mb, got, c.want)
+		}
+	}
+}
+
+func TestRunnerStopIfIdle(t *testing.T) {
+	r := newRunner(t)
+	if r.StopIfIdle() {
+		t.Fatal("StopIfIdle returned true before runner started")
+	}
+	if _, _, err := r.Ensure(context.Background(), opts("a.gguf")); err != nil {
+		t.Fatal(err)
+	}
+	pid := r.pid()
+	if r.StopIfIdle() {
+		t.Fatal("StopIfIdle stopped a busy runner")
+	}
+	if !r.Running() {
+		t.Fatal("runner should still be running while busy")
+	}
+	r.Used()
+	if !r.StopIfIdle() {
+		t.Fatal("StopIfIdle did not stop an idle runner")
+	}
+	gone(t, pid)
+}

@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Всички карти ({n})",
 	"settings.subtitles.trGPUHint": "Много по-бързо от CPU. Картите се показват тук, когато контейнерът получи такава чрез --device /dev/dri.",
 	"settings.subtitles.trThreads": "Нишки на CPU",
-	"settings.subtitles.trThreadsHint": "Празно за стойността по подразбиране ({n}). Тази машина има {max}."
+	"settings.subtitles.trThreadsHint": "Празно за стойността по подразбиране ({n}). Тази машина има {max}.",
+	"settings.subtitles.sttAtOnce": "Файлове наведнъж на всяка видеокарта",
+	"settings.subtitles.sttAtOnceHint": "Колко видеа се слушат едновременно на всяка карта. Повече файлове заемат повече от паметта на картата. Новото число важи от следващото стартиране на HolyArrs.",
+	"settings.subtitles.sttFast": "По-бързо, малко по-неточно",
+	"settings.subtitles.sttFastHint": "Пази един вариант за всеки ред, вместо да сравнява пет. Около една четвърт по-бързо; още няколко думи излизат грешни."
 }

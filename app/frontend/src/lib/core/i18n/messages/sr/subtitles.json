@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs још није сачувао ниједан титл.",
 	"subtitles.page.done.downloaded": "Преузето",
 	"subtitles.page.done.how": "Како је настао",
-	"subtitles.page.done.when": "Сачувано"
+	"subtitles.page.done.when": "Сачувано",
+	"subtitles.page.pause": "Паузирај",
+	"subtitles.page.resume": "Настави",
+	"subtitles.page.pausedNote": "Паузирано: претраге, преводи и говор у текст чекају у реду. Посао који је већ у току завршиће се сам.",
+	"subtitles.page.pauseFailed": "Паузу није било могуће променити"
 }

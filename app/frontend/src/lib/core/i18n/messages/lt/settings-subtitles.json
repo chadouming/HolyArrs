@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Visos plokštės ({n})",
 	"settings.subtitles.trGPUHint": "Daug greičiau nei CPU. Plokštės rodomos čia, kai konteineriui suteikiama viena su --device /dev/dri.",
 	"settings.subtitles.trThreads": "CPU gijos",
-	"settings.subtitles.trThreadsHint": "Tuščia – numatytoji reikšmė ({n}). Šis kompiuteris turi {max}."
+	"settings.subtitles.trThreadsHint": "Tuščia – numatytoji reikšmė ({n}). Šis kompiuteris turi {max}.",
+	"settings.subtitles.sttAtOnce": "Failų vienu metu kiekvienoje vaizdo plokštėje",
+	"settings.subtitles.sttAtOnceHint": "Kiek vaizdo įrašų klausoma vienu metu kiekvienoje plokštėje. Daugiau failų naudoja daugiau plokštės atminties. Naujas skaičius įsigalioja kitą kartą paleidus HolyArrs.",
+	"settings.subtitles.sttFast": "Greičiau, šiek tiek mažiau tiksliai",
+	"settings.subtitles.sttFastHint": "Kiekvienai eilutei palieka vieną variantą, užuot lyginus penkis. Maždaug ketvirtadaliu greičiau; keliais žodžiais daugiau būna klaidingų."
 }

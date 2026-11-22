@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs has not saved a subtitle yet.",
 	"subtitles.page.done.downloaded": "Downloaded",
 	"subtitles.page.done.how": "How it was made",
-	"subtitles.page.done.when": "Saved"
+	"subtitles.page.done.when": "Saved",
+	"subtitles.page.pause": "Pause",
+	"subtitles.page.resume": "Resume",
+	"subtitles.page.pausedNote": "Paused: searches, translations and speech to text wait in the queue. A job that is running ends by itself.",
+	"subtitles.page.pauseFailed": "The pause could not be changed"
 }

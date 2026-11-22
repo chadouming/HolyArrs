@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs এখনও কোনো সাবটাইটেল সেভ করেনি।",
 	"subtitles.page.done.downloaded": "ডাউনলোড করা হয়েছে",
 	"subtitles.page.done.how": "কীভাবে তৈরি",
-	"subtitles.page.done.when": "সেভ হয়েছে"
+	"subtitles.page.done.when": "সেভ হয়েছে",
+	"subtitles.page.pause": "থামান",
+	"subtitles.page.resume": "আবার চালু করুন",
+	"subtitles.page.pausedNote": "থামানো আছে: সার্চ, অনুবাদ আর কথা থেকে লেখা সারিতে অপেক্ষা করছে। যে কাজ চলছে সেটা নিজে থেকেই শেষ হবে।",
+	"subtitles.page.pauseFailed": "বিরতি বদলানো যায়নি"
 }

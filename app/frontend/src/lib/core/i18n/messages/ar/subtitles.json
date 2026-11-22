@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "لم يحفظ HolyArrs أي ترجمة بعد.",
 	"subtitles.page.done.downloaded": "تم تنزيلها",
 	"subtitles.page.done.how": "طريقة الإنشاء",
-	"subtitles.page.done.when": "تاريخ الحفظ"
+	"subtitles.page.done.when": "تاريخ الحفظ",
+	"subtitles.page.pause": "إيقاف مؤقت",
+	"subtitles.page.resume": "استئناف",
+	"subtitles.page.pausedNote": "متوقف مؤقتًا: عمليات البحث والترجمة وتحويل الكلام إلى نص تنتظر في قائمة الانتظار. المهمة الجارية تنتهي من تلقاء نفسها.",
+	"subtitles.page.pauseFailed": "تعذّر تغيير حالة الإيقاف المؤقت"
 }

@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs はまだ字幕を保存していません。",
 	"subtitles.page.done.downloaded": "ダウンロード",
 	"subtitles.page.done.how": "作成方法",
-	"subtitles.page.done.when": "保存日時"
+	"subtitles.page.done.when": "保存日時",
+	"subtitles.page.pause": "一時停止",
+	"subtitles.page.resume": "再開",
+	"subtitles.page.pausedNote": "一時停止中: 検索、翻訳、文字起こしはキューで待機します。実行中のジョブはそのまま最後まで実行されます。",
+	"subtitles.page.pauseFailed": "一時停止の状態を変更できませんでした"
 }

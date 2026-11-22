@@ -11,6 +11,7 @@ const base: Overview = {
 	transcribe_missing: true,
 	translator_ready: true,
 	translator_name: 'Built in',
+	paused: false,
 	done: [],
 	done_counts: { downloaded: 0, translated: 0, speech: 0 },
 	jobs: [],

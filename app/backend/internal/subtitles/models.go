@@ -119,13 +119,28 @@ type ModelView struct {
 // the models folder. A half-downloaded file is never a model.
 func (s *Service) Models(ctx context.Context) []ModelView {
 	chosen := readTranslator(ctx, s.Store.Read()).BuiltInModel
+	chosenSpeechID := ""
+	if sp, ok := s.speechModel(ctx); ok {
+		if set := ReadSettings(ctx, s.Store.Read()); set.TranscribeModel == sp.ID {
+			chosenSpeechID = sp.ID
+		} else if _, err := s.modelFor(sp.ID); err == nil {
+			chosenSpeechID = sp.ID
+		}
+	}
 	total := builtin.TotalMemory()
 	fits := func(need uint64) bool { return total == 0 || need <= total }
 	out := []ModelView{}
 	taken := map[string]bool{}
 	for _, m := range builtin.Catalogue {
 		taken[strings.ToLower(m.ID+".gguf")] = true
-		v := ModelView{ID: m.ID, Name: m.Name, Size: m.Size, Need: m.NeedBytes, License: m.License, State: "missing", Fits: fits(m.NeedBytes), Chosen: m.ID == chosen, Kind: m.Kind}
+		isChosen := false
+		switch m.Kind {
+		case "":
+			isChosen = m.ID == chosen
+		case builtin.KindSpeech:
+			isChosen = m.ID == chosenSpeechID
+		}
+		v := ModelView{ID: m.ID, Name: m.Name, Size: m.Size, Need: m.NeedBytes, License: m.License, State: "missing", Fits: fits(m.NeedBytes), Chosen: isChosen, Kind: m.Kind}
 		if _, err := s.modelFor(m.ID); err == nil {
 			v.State = "present"
 		} else if p, ok := s.downloading(m.ID); ok {
@@ -159,6 +174,9 @@ func (s *Service) DeleteModel(ctx context.Context, id string) error {
 	if t := readTranslator(ctx, s.Store.Read()); t.Kind == TranslatorBuiltIn && t.BuiltInModel == id {
 		return ErrModelInUse
 	}
+	if set := ReadSettings(ctx, s.Store.Read()); set.TranscribeMissing && set.TranscribeModel == id {
+		return ErrModelInUse
+	}
 	name := ""
 	if m, ok := builtin.ByID(id); ok {
 		name = m.ID + ".gguf"
@@ -169,7 +187,9 @@ func (s *Service) DeleteModel(ctx context.Context, id string) error {
 	if _, ok := plainFile(p); !ok {
 		return ErrUnknownModel
 	}
-	if s.Runners != nil {
+	if m, ok := builtin.ByID(id); ok && (m.Kind == builtin.KindSpeech || m.Kind == builtin.KindVAD) {
+		s.speech.stop()
+	} else if s.Runners != nil {
 		s.Runners.Stop() // one may still hold this file from an earlier call
 	}
 	return os.Remove(p)

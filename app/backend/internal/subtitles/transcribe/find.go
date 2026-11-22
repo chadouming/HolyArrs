@@ -13,10 +13,18 @@ const (
 	DefaultWhisper = "/opt/whisper/whisper-cli"
 	DefaultFFmpeg  = "/usr/bin/ffmpeg"
 	DefaultFFprobe = "/usr/bin/ffprobe"
+	EnvServer      = "HOLYARRS_WHISPER_SERVER"
+	DefaultServer  = "/opt/whisper/whisper-server"
 )
 
 // Programs are the three programs a transcription runs.
-type Programs struct{ Whisper, FFmpeg, FFprobe string }
+type Programs struct {
+	Whisper, FFmpeg, FFprobe string
+	// Server is whisper.cpp's server, which keeps the model loaded between
+	// files. It is empty when the image does not hold it: the one-shot
+	// program is used then.
+	Server string
+}
 
 func runnable(env, def string) (string, bool) {
 	p := strings.TrimSpace(os.Getenv(env))
@@ -32,5 +40,9 @@ func Find() (Programs, bool) {
 	w, ok1 := runnable(EnvWhisper, DefaultWhisper)
 	f, ok2 := runnable(EnvFFmpeg, DefaultFFmpeg)
 	p, ok3 := runnable(EnvFFprobe, DefaultFFprobe)
-	return Programs{Whisper: w, FFmpeg: f, FFprobe: p}, ok1 && ok2 && ok3
+	progs := Programs{Whisper: w, FFmpeg: f, FFprobe: p}
+	if s, ok := runnable(EnvServer, DefaultServer); ok {
+		progs.Server = s
+	}
+	return progs, ok1 && ok2 && ok3
 }

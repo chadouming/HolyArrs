@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs zatím neuložil žádné titulky.",
 	"subtitles.page.done.downloaded": "Staženo",
 	"subtitles.page.done.how": "Jak vznikly",
-	"subtitles.page.done.when": "Uloženo"
+	"subtitles.page.done.when": "Uloženo",
+	"subtitles.page.pause": "Pozastavit",
+	"subtitles.page.resume": "Pokračovat",
+	"subtitles.page.pausedNote": "Pozastaveno: hledání, překlady a řeč na text čekají ve frontě. Úloha, která už běží, se dokončí sama.",
+	"subtitles.page.pauseFailed": "Pozastavení se nepodařilo změnit"
 }

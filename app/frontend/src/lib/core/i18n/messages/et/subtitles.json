@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs pole veel ühtegi subtiitrit salvestanud.",
 	"subtitles.page.done.downloaded": "Alla laaditud",
 	"subtitles.page.done.how": "Kuidas see tehti",
-	"subtitles.page.done.when": "Salvestatud"
+	"subtitles.page.done.when": "Salvestatud",
+	"subtitles.page.pause": "Peata",
+	"subtitles.page.resume": "Jätka",
+	"subtitles.page.pausedNote": "Peatatud: otsingud, tõlkimised ja kõne tekstiks ootavad järjekorras. Juba käimasolev töö lõpeb ise.",
+	"subtitles.page.pauseFailed": "Pausi ei saanud muuta"
 }

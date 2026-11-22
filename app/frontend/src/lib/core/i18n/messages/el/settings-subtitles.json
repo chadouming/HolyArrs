@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Όλες οι κάρτες ({n})",
 	"settings.subtitles.trGPUHint": "Πολύ πιο γρήγορη από την CPU. Οι κάρτες εμφανίζονται εδώ όταν δοθεί μία στο container με --device /dev/dri.",
 	"settings.subtitles.trThreads": "Νήματα CPU",
-	"settings.subtitles.trThreadsHint": "Κενό για την προεπιλογή ({n}). Αυτό το μηχάνημα έχει {max}."
+	"settings.subtitles.trThreadsHint": "Κενό για την προεπιλογή ({n}). Αυτό το μηχάνημα έχει {max}.",
+	"settings.subtitles.sttAtOnce": "Αρχεία ταυτόχρονα σε κάθε κάρτα γραφικών",
+	"settings.subtitles.sttAtOnceHint": "Πόσα βίντεο ακούγονται την ίδια στιγμή σε κάθε κάρτα. Περισσότερα χρησιμοποιούν περισσότερη από τη μνήμη της κάρτας. Ο νέος αριθμός ισχύει από την επόμενη εκκίνηση του HolyArrs.",
+	"settings.subtitles.sttFast": "Πιο γρήγορα, λίγο λιγότερο ακριβές",
+	"settings.subtitles.sttFastHint": "Κρατά μία εκδοχή για κάθε γραμμή αντί να συγκρίνει πέντε. Περίπου κατά ένα τέταρτο πιο γρήγορο· λίγες ακόμη λέξεις βγαίνουν λάθος."
 }

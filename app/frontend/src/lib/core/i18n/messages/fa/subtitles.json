@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs هنوز هیچ زیرنویسی ذخیره نکرده است.",
 	"subtitles.page.done.downloaded": "دانلودشده",
 	"subtitles.page.done.how": "نحوه ساخت",
-	"subtitles.page.done.when": "زمان ذخیره"
+	"subtitles.page.done.when": "زمان ذخیره",
+	"subtitles.page.pause": "توقف موقت",
+	"subtitles.page.resume": "ادامه",
+	"subtitles.page.pausedNote": "متوقف شده: جستجوها، ترجمه‌ها و گفتار به متن در صف منتظر می‌مانند. کاری که در حال اجراست خودش تمام می‌شود.",
+	"subtitles.page.pauseFailed": "تغییر وضعیت توقف ممکن نشد"
 }

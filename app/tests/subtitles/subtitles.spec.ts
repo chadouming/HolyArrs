@@ -200,6 +200,17 @@ test('Subtitles page: what is missing and why, the sites, the jobs, and the list
 		await page.screenshot({ path: join(process.env.HOLYARRS_E2E_SHOTS, 'subtitles-dark.png'), fullPage: true });
 		await page.emulateMedia({ colorScheme: null });
 	}
+	// Pause holds subtitle work in the queue and says so; Resume lets it run again.
+	const pause = page.getByTestId('subtitles-pause');
+	await expect(pause).toHaveText('Pause');
+	await pause.click();
+	await expect(page.getByTestId('subtitles-paused')).toContainText('Paused');
+	await expect(pause).toHaveText('Resume');
+	await page.reload();
+	await expect(page.getByTestId('subtitles-paused')).toBeVisible();
+	await page.getByTestId('subtitles-pause').click();
+	await expect(page.getByTestId('subtitles-paused')).toHaveCount(0);
+	await expect(page.getByTestId('subtitles-pause')).toHaveText('Pause');
 	// Nothing is searched here: the tests after this one count what is missing.
 	await expect(rows.first().getByTestId('subtitles-search')).toBeEnabled();
 });

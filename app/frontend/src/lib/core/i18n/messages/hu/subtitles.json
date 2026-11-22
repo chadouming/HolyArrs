@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "A HolyArrs még nem mentett feliratot.",
 	"subtitles.page.done.downloaded": "Letöltve",
 	"subtitles.page.done.how": "Hogyan készült",
-	"subtitles.page.done.when": "Mentve"
+	"subtitles.page.done.when": "Mentve",
+	"subtitles.page.pause": "Szüneteltetés",
+	"subtitles.page.resume": "Folytatás",
+	"subtitles.page.pausedNote": "Szüneteltetve: a keresések, a fordítások és a hangból készülő átírások a sorban várakoznak. A már futó feladat magától befejeződik.",
+	"subtitles.page.pauseFailed": "A szüneteltetést nem sikerült módosítani"
 }

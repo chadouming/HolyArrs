@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs nu a salvat încă nicio subtitrare.",
 	"subtitles.page.done.downloaded": "Descărcat",
 	"subtitles.page.done.how": "Cum a fost făcută",
-	"subtitles.page.done.when": "Salvat"
+	"subtitles.page.done.when": "Salvat",
+	"subtitles.page.pause": "Pauză",
+	"subtitles.page.resume": "Reia",
+	"subtitles.page.pausedNote": "În pauză: căutările, traducerile și vorbirea în text așteaptă în coadă. O sarcină care rulează deja se încheie singură.",
+	"subtitles.page.pauseFailed": "Pauza nu a putut fi modificată"
 }

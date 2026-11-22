@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Усі карти ({n})",
 	"settings.subtitles.trGPUHint": "Набагато швидше, ніж CPU. Карти з'являються тут, коли контейнеру передано карту через --device /dev/dri.",
 	"settings.subtitles.trThreads": "Потоки CPU",
-	"settings.subtitles.trThreadsHint": "Порожньо — типове значення ({n}). На цій машині їх {max}."
+	"settings.subtitles.trThreadsHint": "Порожньо — типове значення ({n}). На цій машині їх {max}.",
+	"settings.subtitles.sttAtOnce": "Файлів одночасно на кожній відеокарті",
+	"settings.subtitles.sttAtOnceHint": "Скільки відео прослуховується одночасно на кожній карті. Що більше, то більше пам'яті карти зайнято. Нове число почне діяти з наступного запуску HolyArrs.",
+	"settings.subtitles.sttFast": "Швидше, трохи менш точно",
+	"settings.subtitles.sttFastHint": "Залишає один варіант для кожного рядка замість порівняння п'яти. Приблизно на чверть швидше; ще кілька слів виходять неправильними."
 }

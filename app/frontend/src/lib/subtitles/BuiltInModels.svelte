@@ -6,13 +6,14 @@
 	import { plainMessage as message } from '#lib/core/settings.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Field from '#lib/ui/Field.svelte';
-	import { modelAction, sizeWords, type ModelList, type ModelView, type TranslatorForm } from './api.ts';
+	import { activeSpeechModel, modelAction, sizeWords, type ModelList, type ModelView, type TranslatorForm } from './api.ts';
 
 	// kinds: which models the list shows. '' are translation models (the built-in translator's own); 'speech' and 'vad' are the transcriber's.
-	let { tr = $bindable(), models = $bindable([]), speech = false }: { tr?: TranslatorForm; models?: ModelView[]; speech?: boolean } = $props();
+	let { tr = $bindable(), models = $bindable([]), speech = false, speechModel = $bindable('') }: { tr?: TranslatorForm; models?: ModelView[]; speech?: boolean; speechModel?: string } = $props();
 	const mine = (m: ModelView) => (speech ? m.kind === 'speech' || m.kind === 'vad' : !m.kind);
 
 	let list = $state<ModelList | null>(null);
+	const activeSpeech = $derived(activeSpeechModel(speechModel, list?.models ?? models));
 	let error = $state('');
 	let busy = $state('');
 	const base = '/settings/subtitles/translator/models';
@@ -66,7 +67,8 @@
 	{#if list && list.models.filter(mine).length === 0}<p class="hint">{t('settings.subtitles.trModelNone')}</p>{/if}
 	{#each (list?.models ?? []).filter(mine) as m (m.id)}
 		{@const action = modelAction(m)}
-		<div class="model" class:chosen={tr?.builtin_model === m.id} data-testid="builtin-model">
+		{@const speechInUse = speech && m.kind === 'speech' && activeSpeech === m.id}
+		<div class="model" class:chosen={speech ? speechInUse : tr?.builtin_model === m.id} data-testid="builtin-model">
 			<div class="what">
 				<b>{m.name}</b>
 				<span class="small muted">{m.own ? t('settings.subtitles.trModelOwn') : m.license} · {t('settings.subtitles.trModelNeeds', { size: sizeWords(m.size), need: sizeWords(m.need) })}</span>
@@ -80,14 +82,20 @@
 					<span class="small mono">{Math.round(m.progress * 100)}%</span>
 					<Button size="sm" type="button" disabled={busy === m.id} onclick={() => act(m, 'cancel')}>{t('settings.subtitles.trModelCancel')}</Button>
 				{:else}
-					{#if !tr}
+					{#if speech && m.kind === 'speech'}
+						{#if activeSpeech === m.id}
+							<span class="chip ok">{t('settings.subtitles.trModelInUse')}</span>
+						{:else}
+							<Button size="sm" type="button" onclick={() => (speechModel = m.id)} data-testid="speech-use">{t('settings.subtitles.trModelUse')}</Button>
+						{/if}
+					{:else if !tr}
 						<span class="chip ok">{t('settings.subtitles.trModelDownloaded')}</span>
 					{:else if tr.builtin_model === m.id}
 						<span class="chip ok">{t('settings.subtitles.trModelInUse')}</span>
 					{:else}
 						<Button size="sm" type="button" onclick={() => tr && (tr.builtin_model = m.id)} data-testid="builtin-use">{t('settings.subtitles.trModelUse')}</Button>
 					{/if}
-					<Button size="sm" type="button" variant="plain" disabled={busy === m.id || action === 'inUse'} onclick={() => act(m, 'delete')}>{t('settings.subtitles.trModelDelete')}</Button>
+					<Button size="sm" type="button" variant="plain" disabled={busy === m.id || (speech ? speechInUse : action === 'inUse')} onclick={() => act(m, 'delete')}>{t('settings.subtitles.trModelDelete')}</Button>
 				{/if}
 			</div>
 		</div>

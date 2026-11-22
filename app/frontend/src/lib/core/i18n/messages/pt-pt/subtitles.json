@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "O HolyArrs ainda não guardou nenhuma legenda.",
 	"subtitles.page.done.downloaded": "Descarregada",
 	"subtitles.page.done.how": "Como foi feita",
-	"subtitles.page.done.when": "Guardada em"
+	"subtitles.page.done.when": "Guardada em",
+	"subtitles.page.pause": "Pausar",
+	"subtitles.page.resume": "Retomar",
+	"subtitles.page.pausedNote": "Em pausa: as pesquisas, as traduções e a fala para texto aguardam na fila. Uma tarefa que já está em execução termina sozinha.",
+	"subtitles.page.pauseFailed": "Não foi possível alterar a pausa"
 }

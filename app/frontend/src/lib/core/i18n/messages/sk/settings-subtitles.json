@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Všetky karty ({n})",
 	"settings.subtitles.trGPUHint": "Oveľa rýchlejšie než CPU. Karty sa tu zobrazia, keď kontajner nejakú dostane cez --device /dev/dri.",
 	"settings.subtitles.trThreads": "Vlákna CPU",
-	"settings.subtitles.trThreadsHint": "Prázdne pre predvolenú hodnotu ({n}). Tento počítač ich má {max}."
+	"settings.subtitles.trThreadsHint": "Prázdne pre predvolenú hodnotu ({n}). Tento počítač ich má {max}.",
+	"settings.subtitles.sttAtOnce": "Súborov naraz na každej grafickej karte",
+	"settings.subtitles.sttAtOnceHint": "Koľko videí sa počúva súčasne na každej karte. Viac súborov zaberie viac pamäte karty. Nové číslo začne platiť pri ďalšom spustení HolyArrs.",
+	"settings.subtitles.sttFast": "Rýchlejšie, o niečo menej presne",
+	"settings.subtitles.sttFastHint": "Pre každý riadok si nechá jeden návrh, namiesto toho, aby ich porovnával päť. Asi o štvrtinu rýchlejšie; o pár slov viac vyjde nesprávne."
 }

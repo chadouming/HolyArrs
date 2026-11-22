@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Kaikki kortit ({n})",
 	"settings.subtitles.trGPUHint": "Paljon nopeampi kuin CPU. Kortit näkyvät tässä, kun kontille annetaan sellainen valinnalla --device /dev/dri.",
 	"settings.subtitles.trThreads": "CPU-säikeet",
-	"settings.subtitles.trThreadsHint": "Tyhjä käyttää oletusta ({n}). Tässä koneessa on {max}."
+	"settings.subtitles.trThreadsHint": "Tyhjä käyttää oletusta ({n}). Tässä koneessa on {max}.",
+	"settings.subtitles.sttAtOnce": "Tiedostoja kerralla kullakin näytönohjaimella",
+	"settings.subtitles.sttAtOnceHint": "Kuinka montaa videota kuunnellaan samaan aikaan kullakin näytönohjaimella. Suurempi määrä käyttää enemmän näytönohjaimen muistia. Uusi luku tulee voimaan, kun HolyArrs käynnistyy seuraavan kerran.",
+	"settings.subtitles.sttFast": "Nopeampi, hieman epätarkempi",
+	"settings.subtitles.sttFastHint": "Säilyttää jokaiselle riville yhden ehdotuksen sen sijaan, että vertaisi viittä. Noin neljänneksen nopeampi; muutama sana useampi menee väärin."
 }

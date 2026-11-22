@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Alle Karten ({n})",
 	"settings.subtitles.trGPUHint": "Viel schneller als die CPU. Karten erscheinen hier, wenn der Container eine mit --device /dev/dri bekommt.",
 	"settings.subtitles.trThreads": "CPU-Threads",
-	"settings.subtitles.trThreadsHint": "Leer für den Standard ({n}). Dieser Rechner hat {max}."
+	"settings.subtitles.trThreadsHint": "Leer für den Standard ({n}). Dieser Rechner hat {max}.",
+	"settings.subtitles.sttAtOnce": "Dateien gleichzeitig auf jeder Grafikkarte",
+	"settings.subtitles.sttAtOnceHint": "Wie vielen Videos auf jeder Karte gleichzeitig zugehört wird. Mehr belegt mehr vom Speicher der Karte. Eine neue Zahl gilt ab dem nächsten Start von HolyArrs.",
+	"settings.subtitles.sttFast": "Schneller, etwas weniger genau",
+	"settings.subtitles.sttFastHint": "Behält für jede Zeile einen Vorschlag, statt fünf zu vergleichen. Etwa ein Viertel schneller; ein paar Wörter mehr sind falsch."
 }

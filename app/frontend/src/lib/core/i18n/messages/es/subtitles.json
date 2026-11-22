@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs aún no ha guardado ningún subtítulo.",
 	"subtitles.page.done.downloaded": "Descargado",
 	"subtitles.page.done.how": "Cómo se hizo",
-	"subtitles.page.done.when": "Guardado"
+	"subtitles.page.done.when": "Guardado",
+	"subtitles.page.pause": "Pausar",
+	"subtitles.page.resume": "Reanudar",
+	"subtitles.page.pausedNote": "En pausa: las búsquedas, las traducciones y la voz a texto esperan en la cola. Una tarea que ya está en marcha termina por sí sola.",
+	"subtitles.page.pauseFailed": "No se pudo cambiar la pausa"
 }

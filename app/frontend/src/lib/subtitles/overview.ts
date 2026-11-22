@@ -60,6 +60,8 @@ export interface Overview {
 	transcribe_missing: boolean;
 	translator_ready: boolean;
 	translator_name: string;
+	/** Searches, translations and speech to text wait in the queue. */
+	paused: boolean;
 	done: DoneRow[];
 	done_counts: Record<How, number>;
 	jobs: OverviewJob[];

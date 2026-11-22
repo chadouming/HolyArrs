@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs hefur ekki vistað neinn skjátexta enn.",
 	"subtitles.page.done.downloaded": "Sótt",
 	"subtitles.page.done.how": "Hvernig hann var gerður",
-	"subtitles.page.done.when": "Vistað"
+	"subtitles.page.done.when": "Vistað",
+	"subtitles.page.pause": "Gera hlé",
+	"subtitles.page.resume": "Halda áfram",
+	"subtitles.page.pausedNote": "Í hléi: leitir, þýðingar og tal í texta bíða í röðinni. Verk sem er þegar í gangi klárast af sjálfu sér.",
+	"subtitles.page.pauseFailed": "Ekki tókst að breyta hléinu"
 }

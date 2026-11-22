@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
 	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
+	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate/builtin"
 )
 
 // Schedule kinds.
@@ -49,6 +51,14 @@ type Settings struct {
 	// TranscribeMissing makes a subtitle from the audio when a File has no
 	// text subtitle in any language and a search saved none.
 	TranscribeMissing bool `json:"transcribe_missing"`
+	// TranscribeAtOnce is how many transcripts run at the same time on each
+	// graphics card. A new number counts from the next start.
+	TranscribeAtOnce int `json:"transcribe_at_once"`
+	// TranscribeFast keeps one candidate transcript in place of searching
+	// five: about a quarter quicker, a little less exact.
+	TranscribeFast bool `json:"transcribe_fast"`
+	// TranscribeModel selects a specific speech model ID; empty uses the default.
+	TranscribeModel string `json:"transcribe_model"`
 	// SyncFromFPS and SyncToFPS are the frame-rate change a Sync fix offers first,
 	// such as a subtitle timed for 25 fps on a 23.976 fps video. SyncStepMS is the
 	// step of the offset buttons. A person can change all three in the fix.
@@ -61,8 +71,14 @@ type Settings struct {
 func DefaultSettings() Settings {
 	return Settings{Languages: []Want{}, PassMarkMovie: 70, PassMarkEpisode: 90, UseBuiltIn: true, HISuffix: "hi",
 		SearchHours: 6, Better: true, BetterHours: 12, BetterDays: 7, Batch: 100, Adaptive: true,
-		SyncFromFPS: 25, SyncToFPS: 23.976, SyncStepMS: 500}
+		TranscribeAtOnce: DefaultTranscribeAtOnce, SyncFromFPS: 25, SyncToFPS: 23.976, SyncStepMS: 500}
 }
+
+// How many transcripts run at once on one graphics card.
+const (
+	DefaultTranscribeAtOnce = 2
+	MaxTranscribeAtOnce     = 3
+)
 
 // Validate checks every field.
 func (s *Settings) Validate() error {
@@ -71,6 +87,15 @@ func (s *Settings) Validate() error {
 		return err
 	}
 	s.Languages = ws
+	// A number out of range is brought back into it, not refused.
+	s.TranscribeAtOnce = min(max(s.TranscribeAtOnce, 1), MaxTranscribeAtOnce)
+	s.TranscribeModel = strings.TrimSpace(s.TranscribeModel)
+	if s.TranscribeModel != "" {
+		m, ok := builtin.ByID(s.TranscribeModel)
+		if !ok || m.Kind != builtin.KindSpeech {
+			return fmt.Errorf("transcribe_model must be a known speech model")
+		}
+	}
 	switch {
 	case s.PassMarkMovie < 0 || s.PassMarkMovie > 100, s.PassMarkEpisode < 0 || s.PassMarkEpisode > 100:
 		return fmt.Errorf("pass marks must be 0 to 100")
@@ -94,7 +119,7 @@ func (s *Settings) Validate() error {
 
 var settingKeys = []string{"subtitle_languages", "subtitle_pass_mark_movie", "subtitle_pass_mark_episode", "subtitle_use_built_in",
 	"subtitle_ignore_picture_tracks", "subtitle_hi_suffix", "subtitle_better", "subtitle_better_days", "subtitle_batch", "subtitle_adaptive",
-	"subtitle_transcribe_missing", "subtitle_sync_from_fps", "subtitle_sync_to_fps", "subtitle_sync_step_ms"}
+	"subtitle_transcribe_missing", "subtitle_transcribe_at_once", "subtitle_transcribe_fast", "subtitle_transcribe_model", "subtitle_sync_from_fps", "subtitle_sync_to_fps", "subtitle_sync_step_ms"}
 
 // ReadSettings reads the subtitle settings. Unset or odd values keep their
 // defaults so a bad row never breaks subtitles.
@@ -159,6 +184,19 @@ func ReadSettings(ctx context.Context, db *sql.DB) Settings {
 				if berr == nil {
 					s.TranscribeMissing = b
 				}
+			case "subtitle_transcribe_at_once":
+				if nerr == nil && n >= 1 && n <= MaxTranscribeAtOnce {
+					s.TranscribeAtOnce = n
+				}
+			case "subtitle_transcribe_fast":
+				if berr == nil {
+					s.TranscribeFast = b
+				}
+			case "subtitle_transcribe_model":
+				v = strings.TrimSpace(v)
+				if m, ok := builtin.ByID(v); ok && m.Kind == builtin.KindSpeech {
+					s.TranscribeModel = v
+				}
 			case "subtitle_sync_from_fps":
 				if ferr == nil && fl >= 1 && fl <= 120 {
 					s.SyncFromFPS = fl
@@ -197,7 +235,9 @@ func SaveSettings(ctx context.Context, st *database.Store, s Settings, by domain
 		"subtitle_better": strconv.FormatBool(s.Better), "subtitle_better_days": strconv.Itoa(s.BetterDays),
 		"subtitle_batch": strconv.Itoa(s.Batch), "subtitle_adaptive": strconv.FormatBool(s.Adaptive),
 		"subtitle_transcribe_missing": strconv.FormatBool(s.TranscribeMissing),
-		"subtitle_sync_from_fps":      strconv.FormatFloat(s.SyncFromFPS, 'f', -1, 64), "subtitle_sync_to_fps": strconv.FormatFloat(s.SyncToFPS, 'f', -1, 64),
+		"subtitle_transcribe_at_once": strconv.Itoa(s.TranscribeAtOnce), "subtitle_transcribe_fast": strconv.FormatBool(s.TranscribeFast),
+		"subtitle_transcribe_model":   s.TranscribeModel,
+		"subtitle_sync_from_fps": strconv.FormatFloat(s.SyncFromFPS, 'f', -1, 64), "subtitle_sync_to_fps": strconv.FormatFloat(s.SyncToFPS, 'f', -1, 64),
 		"subtitle_sync_step_ms": strconv.Itoa(s.SyncStepMS),
 	}
 	actor, _ := json.Marshal(by)

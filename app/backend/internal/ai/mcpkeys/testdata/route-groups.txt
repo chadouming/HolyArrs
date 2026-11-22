@@ -596,6 +596,7 @@ PUT /api/v1/settings/url-base admin
 PUT /api/v1/settings/watch-history settings
 PUT /api/v1/sources/{id} settings
 PUT /api/v1/subtitle-sites/{id} settings
+PUT /api/v1/subtitles/pause control
 PUT /api/v1/titles/{id} add
 PUT /api/v1/titles/{id}/artist add
 PUT /api/v1/titles/{id}/files/{fid}/choices add

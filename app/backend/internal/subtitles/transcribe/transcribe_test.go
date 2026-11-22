@@ -15,13 +15,18 @@ import (
 
 var progs Programs
 
+// fakeDir holds the stand-in programs.
+var fakeDir string
+
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "stt-fakes")
 	if err != nil {
 		panic(err)
 	}
+	fakeDir = dir
 	progs = Programs{Whisper: filepath.Join(dir, "whisper-cli"), FFmpeg: filepath.Join(dir, "ffmpeg"), FFprobe: filepath.Join(dir, "ffprobe")}
-	for out, pkg := range map[string]string{progs.Whisper: "./fakes/whisper", progs.FFmpeg: "./fakes/ffmpeg", progs.FFprobe: "./fakes/ffmpeg"} {
+	for out, pkg := range map[string]string{progs.Whisper: "./fakes/whisper", progs.FFmpeg: "./fakes/ffmpeg", progs.FFprobe: "./fakes/ffmpeg",
+		filepath.Join(dir, "whisper-server"): "./fakes/whisper-server"} {
 		if b, err := exec.Command("go", "build", "-o", out, pkg).CombinedOutput(); err != nil {
 			panic(fmt.Sprintf("building %s: %v\n%s", pkg, err, b))
 		}

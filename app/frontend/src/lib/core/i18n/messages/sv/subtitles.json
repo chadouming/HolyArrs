@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs har inte sparat någon undertext än.",
 	"subtitles.page.done.downloaded": "Nedladdad",
 	"subtitles.page.done.how": "Hur den skapades",
-	"subtitles.page.done.when": "Sparad"
+	"subtitles.page.done.when": "Sparad",
+	"subtitles.page.pause": "Pausa",
+	"subtitles.page.resume": "Återuppta",
+	"subtitles.page.pausedNote": "Pausad: sökningar, översättningar och tal till text väntar i kön. Ett jobb som redan körs blir klart av sig självt.",
+	"subtitles.page.pauseFailed": "Pausen kunde inte ändras"
 }

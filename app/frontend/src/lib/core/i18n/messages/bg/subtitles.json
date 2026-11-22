@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs още не е запазил субтитри.",
 	"subtitles.page.done.downloaded": "Изтеглено",
 	"subtitles.page.done.how": "Как е направено",
-	"subtitles.page.done.when": "Запазено"
+	"subtitles.page.done.when": "Запазено",
+	"subtitles.page.pause": "Пауза",
+	"subtitles.page.resume": "Продължи",
+	"subtitles.page.pausedNote": "На пауза: търсенията, преводите и „реч в текст“ чакат на опашката. Задача, която вече се изпълнява, завършва сама.",
+	"subtitles.page.pauseFailed": "Паузата не можа да бъде променена"
 }

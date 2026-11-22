@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Visas kartes ({n})",
 	"settings.subtitles.trGPUHint": "Daudz ātrāk nekā CPU. Kartes parādās šeit, kad konteineram tiek piešķirta viena ar --device /dev/dri.",
 	"settings.subtitles.trThreads": "CPU pavedieni",
-	"settings.subtitles.trThreadsHint": "Tukšs — noklusējums ({n}). Šai iekārtai ir {max}."
+	"settings.subtitles.trThreadsHint": "Tukšs — noklusējums ({n}). Šai iekārtai ir {max}.",
+	"settings.subtitles.sttAtOnce": "Faili vienlaikus uz katras videokartes",
+	"settings.subtitles.sttAtOnceHint": "Cik video vienlaikus tiek klausīti uz katras kartes. Lielāks skaits aizņem vairāk kartes atmiņas. Jauns skaitlis stājas spēkā nākamajā HolyArrs palaišanas reizē.",
+	"settings.subtitles.sttFast": "Ātrāk, nedaudz mazāk precīzi",
+	"settings.subtitles.sttFastHint": "Katrai rindai patur vienu variantu, nevis salīdzina piecus. Aptuveni par ceturtdaļu ātrāk; vēl daži vārdi sanāk nepareizi."
 }

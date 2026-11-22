@@ -29,7 +29,37 @@ const GPUParallel = 8
 
 // GPUContext is the context, in tokens, of each slot of a runner on a
 // graphics card: room for one chunk and its answer.
-const GPUContext = 4096
+const GPUContext = 2048
+
+// GPUParallelFor chooses the parallel slot count for a graphics card with
+// memoryMB of VRAM and a model requiring modelNeedBytes.
+func GPUParallelFor(memoryMB int, modelNeedBytes uint64) int {
+	if memoryMB <= 0 {
+		return GPUParallel
+	}
+	if modelNeedBytes >= 4<<30 {
+		switch {
+		case memoryMB >= 10000:
+			return 6
+		case memoryMB >= 7000:
+			return 4
+		case memoryMB >= 5000:
+			return 2
+		default:
+			return 1
+		}
+	}
+	switch {
+	case memoryMB >= 10000:
+		return 8
+	case memoryMB >= 7000:
+		return 6
+	case memoryMB >= 5000:
+		return 4
+	default:
+		return 2
+	}
+}
 
 // Target is one runner and what it is started with.
 type Target struct {

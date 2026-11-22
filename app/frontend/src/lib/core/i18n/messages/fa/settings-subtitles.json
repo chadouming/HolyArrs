@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "همه کارت‌ها ({n})",
 	"settings.subtitles.trGPUHint": "بسیار سریع‌تر از CPU. کارت‌ها وقتی اینجا دیده می‌شوند که با --device /dev/dri به کانتینر داده شوند.",
 	"settings.subtitles.trThreads": "رشته‌های CPU",
-	"settings.subtitles.trThreadsHint": "برای پیش‌فرض ({n}) خالی بگذارید. این دستگاه {max} رشته دارد."
+	"settings.subtitles.trThreadsHint": "برای پیش‌فرض ({n}) خالی بگذارید. این دستگاه {max} رشته دارد.",
+	"settings.subtitles.sttAtOnce": "تعداد فایل‌های هم‌زمان روی هر کارت گرافیک",
+	"settings.subtitles.sttAtOnceHint": "چند ویدیو هم‌زمان روی هر کارت گوش داده می‌شود. تعداد بیشتر، حافظهٔ بیشتری از کارت را می‌گیرد. عدد جدید از دفعهٔ بعدی که HolyArrs شروع به کار کند اعمال می‌شود.",
+	"settings.subtitles.sttFast": "سریع‌تر، با دقت کمی کمتر",
+	"settings.subtitles.sttFastHint": "به‌جای مقایسهٔ پنج گزینه، برای هر خط فقط یک گزینه نگه می‌دارد. حدود یک‌چهارم سریع‌تر؛ چند کلمهٔ بیشتر اشتباه درمی‌آید."
 }

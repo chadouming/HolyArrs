@@ -75,6 +75,20 @@ type Options struct {
 	Parallel int
 	// NoThink tells a model that reasons before it answers not to.
 	NoThink bool
+	// FlashAttn turns on flash attention when running on a graphics card.
+	FlashAttn bool
+	// QuantKV stores the KV cache in q8_0 when running on a graphics card.
+	QuantKV bool
+}
+
+// LlamaNoFlashAttn reports whether flash attention and quantized KV cache
+// are disabled via environment variable.
+func LlamaNoFlashAttn() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("HOLYARRS_LLAMA_NO_FLASH_ATTN"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // slots is how many calls the runner takes at once.
@@ -222,6 +236,28 @@ func (r *Runner) Stop() {
 	}
 }
 
+// StopIfIdle stops the runner process if it is running and has no active calls.
+func (r *Runner) StopIfIdle() bool {
+	if !r.start.TryLock() {
+		return false
+	}
+	defer r.start.Unlock()
+	r.mu.Lock()
+	if r.cur == nil || !r.ready || r.busy > 0 {
+		r.mu.Unlock()
+		return false
+	}
+	if r.idle != nil {
+		r.idle.Stop()
+		r.idle = nil
+	}
+	p := r.cur
+	r.cur, r.ready = nil, false
+	r.mu.Unlock()
+	r.kill(p)
+	return true
+}
+
 func (r *Runner) kill(p *proc) {
 	if p.cmd.Process != nil {
 		_ = p.cmd.Process.Kill()
@@ -268,6 +304,14 @@ func (r *Runner) launch(o Options) (*proc, error) {
 	}
 	if o.GPU != "" {
 		args = append(args, "--gpu-layers", "999", "--device", o.GPU)
+		if !LlamaNoFlashAttn() {
+			if o.FlashAttn {
+				args = append(args, "--flash-attn", "on")
+			}
+			if o.QuantKV {
+				args = append(args, "--cache-type-k", "q8_0", "--cache-type-v", "q8_0")
+			}
+		}
 	} else {
 		// Said outright: left alone, the runner takes any card it can see.
 		args = append(args, "--gpu-layers", "0")

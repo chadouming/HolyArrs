@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "所有顯示卡 ({n})",
 	"settings.subtitles.trGPUHint": "比 CPU 快得多。用 --device /dev/dri 把顯示卡交給容器後，會顯示在這裡。",
 	"settings.subtitles.trThreads": "CPU 執行緒數",
-	"settings.subtitles.trThreadsHint": "留空即用預設值（{n}）。這台機器有 {max} 個。"
+	"settings.subtitles.trThreadsHint": "留空即用預設值（{n}）。這台機器有 {max} 個。",
+	"settings.subtitles.sttAtOnce": "每張顯示卡同時處理的檔案數",
+	"settings.subtitles.sttAtOnceHint": "每張顯示卡上同時聆聽多少部影片。數量越多，佔用的顯示卡記憶體越多。新的數字會在下次啟動 HolyArrs 時生效。",
+	"settings.subtitles.sttFast": "更快，準確度略低",
+	"settings.subtitles.sttFastHint": "每行只保留一個候選結果，而不是比較五個。大約快四分之一；出錯的字詞會多幾個。"
 }

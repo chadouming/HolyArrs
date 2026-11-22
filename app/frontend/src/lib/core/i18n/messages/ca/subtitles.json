@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs encara no ha desat cap subtítol.",
 	"subtitles.page.done.downloaded": "Baixat",
 	"subtitles.page.done.how": "Com s'ha fet",
-	"subtitles.page.done.when": "Desat"
+	"subtitles.page.done.when": "Desat",
+	"subtitles.page.pause": "Posa en pausa",
+	"subtitles.page.resume": "Reprèn",
+	"subtitles.page.pausedNote": "En pausa: les cerques, les traduccions i la veu a text esperen a la cua. Una tasca que ja s'està executant acaba tota sola.",
+	"subtitles.page.pauseFailed": "No s'ha pogut canviar la pausa"
 }

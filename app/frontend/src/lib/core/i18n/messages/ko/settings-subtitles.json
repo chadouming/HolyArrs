@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "모든 카드 ({n})",
 	"settings.subtitles.trGPUHint": "CPU보다 훨씬 빠릅니다. 컨테이너에 --device /dev/dri로 카드를 주면 여기에 표시됩니다.",
 	"settings.subtitles.trThreads": "CPU 스레드",
-	"settings.subtitles.trThreadsHint": "비워 두면 기본값({n})을 씁니다. 이 기기에는 {max}개가 있습니다."
+	"settings.subtitles.trThreadsHint": "비워 두면 기본값({n})을 씁니다. 이 기기에는 {max}개가 있습니다.",
+	"settings.subtitles.sttAtOnce": "그래픽 카드마다 동시에 처리할 파일 수",
+	"settings.subtitles.sttAtOnceHint": "각 카드에서 동시에 듣는 동영상 수입니다. 많을수록 카드 메모리를 더 많이 씁니다. 바꾼 숫자는 HolyArrs를 다음에 시작할 때부터 적용됩니다.",
+	"settings.subtitles.sttFast": "더 빠르게, 정확도는 조금 낮게",
+	"settings.subtitles.sttFastHint": "줄마다 후보 다섯 개를 비교하는 대신 하나만 남깁니다. 약 4분의 1 더 빠르지만 틀리는 단어가 조금 늘어납니다."
 }

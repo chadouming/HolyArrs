@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs vēl nav saglabājis nevienus subtitrus.",
 	"subtitles.page.done.downloaded": "Lejupielādēts",
 	"subtitles.page.done.how": "Kā tas izveidots",
-	"subtitles.page.done.when": "Saglabāts"
+	"subtitles.page.done.when": "Saglabāts",
+	"subtitles.page.pause": "Pauzēt",
+	"subtitles.page.resume": "Turpināt",
+	"subtitles.page.pausedNote": "Pauzēts: meklēšana, tulkošana un runas pārvēršana tekstā gaida rindā. Darbs, kas jau notiek, pabeidzas pats.",
+	"subtitles.page.pauseFailed": "Pauzi neizdevās mainīt"
 }

@@ -12,7 +12,7 @@
 	import TestTag from '#lib/ui/TestTag.svelte';
 	import Icon from '#lib/ui/Icon.svelte';
 	import EmptyState from '#lib/ui/EmptyState.svelte';
-	import { BuiltInModels, LanguageWants as WishEditor, accountMissing, accountWords, kindCovers, siteBody, siteForm, siteState, translatorBody, translatorReady, wishProblem, type ModelView, type Transcriber, type Language, type Translator, type TranslatorForm, type SiteForm, type SiteKind, type SiteView, type SubtitleSettings } from '#lib/subtitles/index.ts';
+	import { BuiltInModels, LanguageWants as WishEditor, accountMissing, accountWords, kindCovers, siteBody, siteForm, siteState, speechReady, translatorBody, translatorReady, wishProblem, type ModelView, type Transcriber, type Language, type Translator, type TranslatorForm, type SiteForm, type SiteKind, type SiteView, type SubtitleSettings } from '#lib/subtitles/index.ts';
 	import { onMount } from 'svelte';
 	import { testCount } from '#lib/core/test-tag.ts';
 	import { api } from '#lib/core/api.ts';
@@ -45,7 +45,7 @@
 	// Whether subtitles can be made from audio here: the programs in this image, and its two models.
 	let transcriber = $state<Transcriber | null>(null);
 	let sttModels = $state<ModelView[]>([]);
-	const sttReady = $derived(sttModels.filter((m) => (m.kind === 'speech' || m.kind === 'vad') && m.state === 'present').length >= 2);
+	const sttReady = $derived(speechReady(sttModels));
 	const trReady = $derived(!!tr && translatorReady(JSON.parse(trSaved || '{"kind":"","url":""}'), trModels));
 
 	function setTranslator(x: Translator) {
@@ -336,7 +336,16 @@
 					<input type="checkbox" form="subtitle-form" bind:checked={settings.transcribe_missing} data-testid="transcribe-missing" />
 					<span><b>{t('settings.subtitles.sttSwitch')}</b><br /><span class="hint">{t('settings.subtitles.sttSwitchHint')}</span></span>
 				</label>
-				<BuiltInModels speech bind:models={sttModels} />
+				<Field id="stt-at-once" label={t('settings.subtitles.sttAtOnce')} hint={t('settings.subtitles.sttAtOnceHint')}>
+					<select id="stt-at-once" class="input" style="max-width: 120px" form="subtitle-form" bind:value={settings.transcribe_at_once} data-testid="transcribe-at-once">
+						{#each [1, 2, 3] as n (n)}<option value={n}>{n}</option>{/each}
+					</select>
+				</Field>
+				<label class="checkline">
+					<input type="checkbox" form="subtitle-form" bind:checked={settings.transcribe_fast} data-testid="transcribe-fast" />
+					<span><b>{t('settings.subtitles.sttFast')}</b><br /><span class="hint">{t('settings.subtitles.sttFastHint')}</span></span>
+				</label>
+				<BuiltInModels speech bind:models={sttModels} bind:speechModel={settings.transcribe_model} />
 				<p class="small" data-testid="transcriber-state">{sttReady ? t('settings.subtitles.sttReady') : t('settings.subtitles.sttNeedsModels')}</p>
 			{/if}
 		</SettingsCard>

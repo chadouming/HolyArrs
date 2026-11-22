@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs nie zapisał jeszcze żadnych napisów.",
 	"subtitles.page.done.downloaded": "Pobrane",
 	"subtitles.page.done.how": "Jak powstały",
-	"subtitles.page.done.when": "Zapisane"
+	"subtitles.page.done.when": "Zapisane",
+	"subtitles.page.pause": "Wstrzymaj",
+	"subtitles.page.resume": "Wznów",
+	"subtitles.page.pausedNote": "Wstrzymano: wyszukiwania, tłumaczenia i mowa na tekst czekają w kolejce. Zadanie, które już trwa, zakończy się samo.",
+	"subtitles.page.pauseFailed": "Nie udało się zmienić wstrzymania"
 }

@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs n'a encore enregistré aucun sous-titre.",
 	"subtitles.page.done.downloaded": "Téléchargé",
 	"subtitles.page.done.how": "Comment il a été créé",
-	"subtitles.page.done.when": "Enregistré"
+	"subtitles.page.done.when": "Enregistré",
+	"subtitles.page.pause": "Mettre en pause",
+	"subtitles.page.resume": "Reprendre",
+	"subtitles.page.pausedNote": "En pause : les recherches, les traductions et les transcriptions de l'audio attendent dans la file. Une tâche déjà en cours se termine d'elle-même.",
+	"subtitles.page.pauseFailed": "Impossible de modifier la pause"
 }

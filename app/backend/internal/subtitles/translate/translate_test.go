@@ -288,3 +288,10 @@ func TestOpenAI_KeyRepeatedInAnswerIsHidden(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestOpenAI_PromptWithoutFromName(t *testing.T) {
+	p := prompt(Batch{ToName: "English", Title: "Show", Kind: "episode"})
+	if strings.Contains(p, "from  to") || !strings.Contains(p, "into English") {
+		t.Fatalf("unexpected prompt without FromName: %q", p)
+	}
+}

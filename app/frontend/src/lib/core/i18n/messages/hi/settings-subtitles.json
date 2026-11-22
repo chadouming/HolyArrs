@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "सभी कार्ड ({n})",
 	"settings.subtitles.trGPUHint": "CPU से बहुत तेज़। कंटेनर को --device /dev/dri से कार्ड देने पर वह यहां दिखता है।",
 	"settings.subtitles.trThreads": "CPU थ्रेड",
-	"settings.subtitles.trThreadsHint": "डिफ़ॉल्ट ({n}) के लिए खाली छोड़ें। इस मशीन में {max} हैं।"
+	"settings.subtitles.trThreadsHint": "डिफ़ॉल्ट ({n}) के लिए खाली छोड़ें। इस मशीन में {max} हैं।",
+	"settings.subtitles.sttAtOnce": "हर ग्राफ़िक्स कार्ड पर एक साथ कितनी फ़ाइलें",
+	"settings.subtitles.sttAtOnceHint": "हर कार्ड पर एक ही समय में कितने वीडियो सुने जाते हैं। ज़्यादा रखने पर कार्ड की मेमोरी ज़्यादा लगती है। नई संख्या HolyArrs के अगली बार शुरू होने पर लागू होगी।",
+	"settings.subtitles.sttFast": "ज़्यादा तेज़, थोड़ा कम सटीक",
+	"settings.subtitles.sttFastHint": "पांच की तुलना करने के बजाय हर लाइन के लिए एक ही विकल्प रखता है। लगभग एक चौथाई तेज़; कुछ और शब्द गलत आते हैं।"
 }

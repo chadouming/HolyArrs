@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs ยังไม่ได้บันทึกคำบรรยายใดเลย",
 	"subtitles.page.done.downloaded": "ดาวน์โหลดแล้ว",
 	"subtitles.page.done.how": "วิธีที่สร้าง",
-	"subtitles.page.done.when": "บันทึกเมื่อ"
+	"subtitles.page.done.when": "บันทึกเมื่อ",
+	"subtitles.page.pause": "หยุดชั่วคราว",
+	"subtitles.page.resume": "ทำต่อ",
+	"subtitles.page.pausedNote": "หยุดชั่วคราวอยู่: การค้นหา การแปล และการแปลงเสียงพูดเป็นข้อความจะรออยู่ในคิว งานที่กำลังทำอยู่จะทำจนเสร็จเอง",
+	"subtitles.page.pauseFailed": "เปลี่ยนสถานะหยุดชั่วคราวไม่ได้"
 }

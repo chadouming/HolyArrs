@@ -49,6 +49,16 @@ func (p *Pool) Running() bool {
 	return false
 }
 
+// StopIdle stops the runner for device if it exists and is idle.
+func (p *Pool) StopIdle(device string) {
+	p.mu.Lock()
+	r := p.runners[device]
+	p.mu.Unlock()
+	if r != nil {
+		r.StopIfIdle()
+	}
+}
+
 // Stop ends every runner process and waits until they are gone.
 func (p *Pool) Stop() {
 	var wg sync.WaitGroup

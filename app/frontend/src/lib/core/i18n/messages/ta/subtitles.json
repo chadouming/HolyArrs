@@ -227,5 +227,9 @@
 	"subtitles.page.done.none": "HolyArrs இன்னும் எந்த வசனத்தையும் சேமிக்கவில்லை.",
 	"subtitles.page.done.downloaded": "பதிவிறக்கப்பட்டது",
 	"subtitles.page.done.how": "எப்படி உருவானது",
-	"subtitles.page.done.when": "சேமிக்கப்பட்டது"
+	"subtitles.page.done.when": "சேமிக்கப்பட்டது",
+	"subtitles.page.pause": "இடைநிறுத்து",
+	"subtitles.page.resume": "தொடர்",
+	"subtitles.page.pausedNote": "இடைநிறுத்தப்பட்டுள்ளது: தேடல்கள், மொழிபெயர்ப்புகள் மற்றும் பேச்சிலிருந்து எழுத்து ஆகியவை வரிசையில் காத்திருக்கின்றன. ஏற்கனவே ஓடிக்கொண்டிருக்கும் பணி தானாகவே முடியும்.",
+	"subtitles.page.pauseFailed": "இடைநிறுத்தத்தை மாற்ற முடியவில்லை"
 }

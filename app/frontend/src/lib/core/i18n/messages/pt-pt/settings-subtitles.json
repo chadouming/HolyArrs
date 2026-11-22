@@ -131,5 +131,9 @@
 	"settings.subtitles.trGPUAll": "Todas as placas ({n})",
 	"settings.subtitles.trGPUHint": "Muito mais rápido do que o CPU. As placas aparecem aqui quando o contentor recebe uma com --device /dev/dri.",
 	"settings.subtitles.trThreads": "Threads do CPU",
-	"settings.subtitles.trThreadsHint": "Vazio para a predefinição ({n}). Esta máquina tem {max}."
+	"settings.subtitles.trThreadsHint": "Vazio para a predefinição ({n}). Esta máquina tem {max}.",
+	"settings.subtitles.sttAtOnce": "Ficheiros em simultâneo em cada placa gráfica",
+	"settings.subtitles.sttAtOnceHint": "Quantos vídeos são ouvidos ao mesmo tempo em cada placa. Mais ficheiros usam mais da memória da placa. Um número novo passa a contar no próximo arranque do HolyArrs.",
+	"settings.subtitles.sttFast": "Mais rápido, um pouco menos exato",
+	"settings.subtitles.sttFastHint": "Mantém uma só opção para cada linha em vez de comparar cinco. Cerca de um quarto mais rápido; mais algumas palavras saem erradas."
 }
