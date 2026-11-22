@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/mediafiles"
 
@@ -27,7 +28,8 @@ type SearchHandlers struct {
 // Search queues the searches a person asked for on a show page: one
 // episode Slot (slot_id), an episode's Slots (item_id), a season
 // (season) or, with none of them, every season that has an episode
-// kept up to date and looking. version_id narrows to one Version.
+// kept up to date and looking, and every kept episode a failed download
+// left needing a decision. version_id narrows to one Version.
 // choose false only lists the Releases, and needs an episode or a season.
 func (h *SearchHandlers) Search(w http.ResponseWriter, r *http.Request, t mediafiles.Title, in sources.TitleSearchIn) {
 	ctx := r.Context()
@@ -140,6 +142,29 @@ func (h *SearchHandlers) Search(w http.ResponseWriter, r *http.Request, t mediaf
 			if err := season(x.PartID, x.VersionID, true); err != nil {
 				webserver.Internal(w, "shows", err)
 				return
+			}
+		}
+		// And the episodes a failed download left on "needs a decision":
+		// each is searched again, as searching that one episode does. They
+		// are spread out so the Sources are not asked all at once.
+		again, err := ShowDecisionsToSearch(ctx, db, t.ID)
+		if err != nil {
+			webserver.Internal(w, "shows", err)
+			return
+		}
+		start := time.Now().UTC()
+		for _, x := range again {
+			if !verOK(x.VersionID) {
+				continue
+			}
+			id, created, err := h.Queue.EnqueueAt(ctx, jobs.KindSearchSlot, &domain.Subject{Type: "slot", ID: x.SlotID}, map[string]any{"by_hand": true},
+				"hand_search_slot:"+strconv.FormatInt(x.SlotID, 10), by, start.Add(time.Duration(len(ids))*sources.BulkStagger))
+			if err != nil {
+				webserver.Internal(w, "shows", err)
+				return
+			}
+			if created {
+				ids = append(ids, id)
 			}
 		}
 	}

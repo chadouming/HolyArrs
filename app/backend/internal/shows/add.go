@@ -390,6 +390,33 @@ func ShowSeasonsToSearch(ctx context.Context, db database.Lister, titleID int64)
 	return list, rows.Err()
 }
 
+// SlotVersion is one episode Slot and its Version.
+type SlotVersion struct{ SlotID, VersionID int64 }
+
+// ShowDecisionsToSearch lists, for a whole-show search a person started,
+// the kept episodes left on "needs a decision" by a failed download. An
+// episode whose download finished and waits for its import decision is not
+// one of them.
+func ShowDecisionsToSearch(ctx context.Context, db database.Lister, titleID int64) ([]SlotVersion, error) {
+	rows, err := db.QueryContext(ctx, `SELECT s.id, s.version_id FROM parts p JOIN items i ON i.part_id = p.id JOIN slots s ON s.item_id = i.id
+		JOIN titles t ON t.id = p.title_id JOIN versions v ON v.id = s.version_id JOIN downloads d ON d.id = s.active_download_id
+		WHERE p.title_id = ? AND t.keep_up_to_date = 1 AND v.keep_up_to_date = 1 AND p.keep_up_to_date = 1 AND i.keep_up_to_date = 1 AND i.dropped_at IS NULL
+		AND s.state = 'needs_a_decision' AND d.state = 'failed' ORDER BY p.number, i.id, s.version_id`, titleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []SlotVersion
+	for rows.Next() {
+		var x SlotVersion
+		if err := rows.Scan(&x.SlotID, &x.VersionID); err != nil {
+			return nil, err
+		}
+		list = append(list, x)
+	}
+	return list, rows.Err()
+}
+
 // searchShow is the whole-show search after a new show's scan: an
 // automatic search of each season, queued the way the missing search and
 // a failed download queue one (no by_hand, so the release gate holds).
