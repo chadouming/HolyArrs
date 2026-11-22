@@ -27,7 +27,7 @@ func chooseShow(rel string, lib []TitleRef, eps map[int64][]EpisodeRef) (int64, 
 	if m.Title == nil {
 		return 0, m.Detail
 	}
-	_, why := MatchEpisodes(p, "aired", eps[m.Title.ID])
+	_, why := MatchEpisodes(p, "aired", eps[m.Title.ID], nil)
 	if why != "" {
 		return 0, why
 	}

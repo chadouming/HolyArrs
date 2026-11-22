@@ -22,6 +22,7 @@ Year *int `db:"year"`
 Overview *string `db:"overview"`
 OriginalLanguage *string `db:"original_language"`
 Aliases []string `db:"aliases,json"`
+PartNames []PartName `db:"part_names,json"`
 SourceIDs map[string]string `db:"source_ids,json"`
 MetadataSource string `db:"metadata_source"`
 EpisodeOrder *string `db:"episode_order"`

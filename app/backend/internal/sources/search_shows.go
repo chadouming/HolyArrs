@@ -239,7 +239,7 @@ func (s *Searcher) loadShow(ctx context.Context, ti mediafiles.Title, ver mediaf
 }
 
 func (set showSet) ref() mediafiles.TitleRef {
-	r := mediafiles.TitleRef{ID: set.ti.ID, Name: set.ti.Name, Aliases: set.ti.Aliases, Kind: "show"}
+	r := mediafiles.TitleRef{ID: set.ti.ID, Name: set.ti.Name, Aliases: set.ti.Aliases, Kind: "show", Parts: mediafiles.PartsFor(set.ti)}
 	if set.ti.Year != nil {
 		r.Year = *set.ti.Year
 	}
@@ -382,7 +382,7 @@ func matchFail(rule, detail string) mediafiles.Reason {
 func (set showSet) lines(ss *mediafiles.SlotSet, rel mediafiles.ReleaseFacts, refs []mediafiles.EpisodeRef, byItem map[int64]*epSlot, rules showRules,
 	turnedFor func(int64) []string) {
 	p := rel.Parse
-	found, why := mediafiles.MatchEpisodes(p, set.order(), refs)
+	found, why := mediafiles.MatchEpisodes(p, set.order(), refs, mediafiles.PartsFor(set.ti))
 	if why != "" {
 		ss.MatchReasons = append(ss.MatchReasons, matchFail("episode", why))
 		return

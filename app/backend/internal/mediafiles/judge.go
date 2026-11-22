@@ -41,6 +41,8 @@ type TitleRef struct {
 	TagsOnly bool
 	// RuleTags are the tags of the Pick rules its looking Slots use; a tagged Source sharing one also serves the title.
 	RuleTags []string
+	// Parts are the names that point at one part of a show (PartsFor); a part name is a name of the show.
+	Parts []PartName
 }
 
 // Match is the result of matching a parse to the library.
@@ -158,7 +160,7 @@ func MatchTitle(p releasename.Result, lib []TitleRef) Match {
 		return matchArtist(p, lib)
 	}
 	name := releasename.CleanName(p.Title.Value)
-	var cands []*TitleRef
+	var cands, byPart []*TitleRef
 	for i := range lib {
 		t := &lib[i]
 		if (t.Kind == "show") != p.IsShow() || t.Kind == "artist" {
@@ -171,12 +173,22 @@ func MatchTitle(p releasename.Result, lib []TitleRef) Match {
 			cands = append(cands, t)
 			continue
 		}
+		named := false
 		for _, a := range t.Aliases {
 			if releasename.SameName(a, name) {
 				cands = append(cands, t)
+				named = true
 				break
 			}
 		}
+		if _, _, ok := findPart(t.Parts, p.Title.Value); ok && !named && p.IsShow() {
+			byPart = append(byPart, t)
+		}
+	}
+	// A show called this by its own name or another name of its own beats one
+	// that only has a part of that name.
+	if len(cands) == 0 {
+		cands = byPart
 	}
 	if p.IsShow() {
 		cands = withTaggedShows(p, name, lib, cands)
@@ -185,7 +197,7 @@ func MatchTitle(p releasename.Result, lib []TitleRef) Match {
 		return Match{Conf: releasename.Unknown, Detail: fmt.Sprintf("no Title in the library is called %q", p.Title.Value)}
 	}
 	if p.IsShow() {
-		return matchShow(p, cands)
+		return byPartName(p, matchShow(p, cands))
 	}
 	if p.Year.Value == 0 {
 		if len(cands) == 1 {

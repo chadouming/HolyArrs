@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -138,6 +139,94 @@ func (m AnimeMap) AltNames(name string) []string {
 			if k != "" && !seen[k] {
 				seen[k] = true
 				out = append(out, strings.TrimSpace(v))
+			}
+		}
+	}
+	return out
+}
+
+// AnimePart is one part of an anime (an AniList title: a season or cour)
+// as it sits in the TMDB show: episode N of the part is episode Offset+N
+// of Season. Names are its romaji, English and native titles.
+type AnimePart struct {
+	Names  []string
+	Season int
+	Offset int
+}
+
+// PartNames lists the parts of TMDB show tmdbID that sit in a regular
+// season and have a known title, by season and then by where they start.
+// Entries numbered across the whole show (Absolute) name no part. have are
+// the show's seasons: a map that names a season the show no longer has is
+// out of date and gives no parts, as it gives no release numbers.
+func (m AnimeMap) PartNames(tmdbID string, have map[int]bool) []AnimePart {
+	titles := map[int64]AnimeTitle{}
+	for _, t := range m.Titles {
+		titles[t.AniList] = t
+	}
+	var out []AnimePart
+	for _, e := range m.Entries {
+		if strconv.FormatInt(e.TMDBTV, 10) != tmdbID || e.TMDBSeason == nil || *e.TMDBSeason < 1 {
+			continue
+		}
+		if !have[*e.TMDBSeason] {
+			return nil
+		}
+		if e.Absolute || *e.TMDBSeason > maxAnimeSeason {
+			continue
+		}
+		t, ok := titles[e.AniList]
+		if !ok {
+			continue
+		}
+		p := AnimePart{Season: *e.TMDBSeason, Offset: e.TMDBOffset}
+		for _, v := range []string{t.Romaji, t.English, t.Native} {
+			if v = strings.TrimSpace(v); v != "" && !slices.Contains(p.Names, v) {
+				p.Names = append(p.Names, v)
+			}
+		}
+		// AniList marks a first series "(TV)" to tell it from a film or OVA
+		// of the same name; Release names leave the mark out.
+		for _, v := range p.Names {
+			if bare := strings.TrimSpace(reMediaMark.ReplaceAllString(v, "")); bare != "" && bare != v && !slices.Contains(p.Names, bare) {
+				p.Names = append(p.Names, bare)
+			}
+		}
+		if len(p.Names) > 0 {
+			out = append(out, p)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b AnimePart) int {
+		if a.Season != b.Season {
+			return a.Season - b.Season
+		}
+		return a.Offset - b.Offset
+	})
+	return out
+}
+
+// reMediaMark is the "(TV)" AniList puts after a series name.
+var reMediaMark = regexp.MustCompile(`(?i)\s*\(TV\)\s*$`)
+
+// SideNames are the names in the map that belong to no part of TMDB show
+// tmdbID and are not a name of the whole show: a spin-off, the specials, a
+// film, another show's entry. They find the show in a search but name no
+// season of it.
+func (m AnimeMap) SideNames(tmdbID string) []string {
+	own := map[int64]bool{}
+	for _, e := range m.Entries {
+		if strconv.FormatInt(e.TMDBTV, 10) == tmdbID && (e.Absolute || (e.TMDBSeason != nil && *e.TMDBSeason >= 1)) {
+			own[e.AniList] = true
+		}
+	}
+	out := []string{}
+	for _, t := range m.Titles {
+		if own[t.AniList] {
+			continue
+		}
+		for _, v := range []string{t.Romaji, t.English, t.Native} {
+			if v = strings.TrimSpace(v); v != "" && !slices.Contains(out, v) {
+				out = append(out, v)
 			}
 		}
 	}

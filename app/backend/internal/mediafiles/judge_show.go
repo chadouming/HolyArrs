@@ -3,7 +3,6 @@ package mediafiles
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/releasename"
 )
@@ -40,140 +39,14 @@ func yearInName(p releasename.Result, t *TitleRef) bool {
 // show's name must be the year the show began, unless the name with that
 // year is one of the show's names. Any other year names another show of
 // the same name. Files on disk and finished downloads keep MatchTitle,
-// which allows any year.
+// which allows any year. A year after the name of one of the show's parts is
+// that part's year, so it is allowed too.
 func MatchRelease(p releasename.Result, lib []TitleRef) Match {
 	m := MatchTitle(p, lib)
-	if t := m.Title; t != nil && p.IsShow() && p.Year.Value > 0 && t.Year > 0 && t.Year != p.Year.Value && !yearInName(p, t) {
+	if t := m.Title; t != nil && p.IsShow() && p.Year.Value > 0 && t.Year > 0 && t.Year != p.Year.Value && !yearInName(p, t) && !namesPart(p, t) {
 		return Match{Conf: releasename.Unknown, Detail: fmt.Sprintf("the name says %d; this show began in %d", p.Year.Value, t.Year)}
 	}
 	return m
-}
-
-// EpisodeRef is one episode of a show as the matcher sees it.
-type EpisodeRef struct {
-	ItemID   int64
-	Season   int
-	Episode  int
-	Absolute int    // 0: none
-	AirDay   string // YYYY-MM-DD, "" when unknown
-	// AltSeason and AltEpisode are how release names number the episode
-	// when that differs (an anime part TMDB keeps inside one season); 0: none.
-	AltSeason  int
-	AltEpisode int
-}
-
-// Label names an episode the way people write it: S01E02.
-func (e EpisodeRef) Label() string { return fmt.Sprintf("S%02dE%02d", e.Season, e.Episode) }
-
-// Named is the season and episode release names use for the episode.
-func (e EpisodeRef) Named() (int, int) {
-	if e.AltSeason > 0 {
-		return e.AltSeason, e.AltEpisode
-	}
-	return e.Season, e.Episode
-}
-
-// isPack says the Release holds whole seasons.
-func isPack(p releasename.Result) bool {
-	switch p.Kind.Value {
-	case releasename.KindSeasonPack, releasename.KindMultiSeason, releasename.KindComplete:
-		return true
-	}
-	return false
-}
-
-// IsPack says a show Release holds one or more whole seasons.
-func IsPack(p releasename.Result) bool { return isPack(p) }
-
-// MatchEpisodes finds the episodes of a show that a Release holds, using
-// the show's episode order (aired, daily or absolute). It returns the
-// episodes found and, when some numbers name no episode, why.
-func MatchEpisodes(p releasename.Result, order string, eps []EpisodeRef) ([]EpisodeRef, string) {
-	sh := p.Show
-	if sh == nil {
-		return nil, "the name gives no episode numbers"
-	}
-	if sh.Conf == releasename.Guess {
-		return nil, strings.Join(p.Notes, "; ") + "; pick the episode by hand"
-	}
-	var out []EpisodeRef
-	find := func(ok func(EpisodeRef) bool) {
-		for _, e := range eps {
-			if ok(e) {
-				out = append(out, e)
-			}
-		}
-	}
-	switch p.Kind.Value {
-	case releasename.KindSeasonPack, releasename.KindMultiSeason:
-		// An episode sits in the season release names give it; the stored
-		// season counts only when that finds nothing.
-		find(func(e EpisodeRef) bool { s, _ := e.Named(); return slices.Contains(sh.Seasons, s) })
-		if len(out) == 0 {
-			find(func(e EpisodeRef) bool { return slices.Contains(sh.Seasons, e.Season) })
-		}
-		if len(out) == 0 {
-			return nil, fmt.Sprintf("the show has no episodes in season %s", seasonList(sh.Seasons))
-		}
-		return out, ""
-	case releasename.KindComplete:
-		find(func(e EpisodeRef) bool { return e.Season > 0 })
-		if len(out) == 0 {
-			return nil, "the show has no episodes yet"
-		}
-		return out, ""
-	case releasename.KindDaily:
-		find(func(e EpisodeRef) bool { return e.AirDay == sh.AirDate })
-		if len(out) == 0 {
-			return nil, "no episode aired on " + sh.AirDate
-		}
-		return out, ""
-	case releasename.KindAbsolute:
-		var missing []string
-		for _, n := range sh.Absolute {
-			i := slices.IndexFunc(eps, func(e EpisodeRef) bool { return e.Absolute == n })
-			if i < 0 {
-				missing = append(missing, fmt.Sprint(n))
-				continue
-			}
-			out = append(out, eps[i])
-		}
-		if len(missing) > 0 {
-			return nil, "no episode has the running number " + strings.Join(missing, ", ")
-		}
-		return out, ""
-	}
-	// Season and episode numbers (episodes, specials, mini-series parts).
-	if len(sh.Seasons) == 0 || len(sh.Episodes) == 0 {
-		return nil, "the name gives no episode numbers"
-	}
-	var missing []string
-	for _, n := range sh.Episodes {
-		// Release-name numbers first, as the old apps read scene numbers;
-		// then the stored ones.
-		i := slices.IndexFunc(eps, func(e EpisodeRef) bool { s, x := e.Named(); return s == sh.Seasons[0] && x == n })
-		if i < 0 {
-			i = slices.IndexFunc(eps, func(e EpisodeRef) bool { return e.Season == sh.Seasons[0] && e.Episode == n })
-		}
-		if i < 0 {
-			missing = append(missing, fmt.Sprintf("S%02dE%02d", sh.Seasons[0], n))
-			continue
-		}
-		out = append(out, eps[i])
-	}
-	if len(missing) > 0 {
-		return nil, "the show has no episode " + strings.Join(missing, ", ")
-	}
-	_ = order // every order keeps season and episode numbers; daily and absolute names are matched above
-	return out, ""
-}
-
-func seasonList(ns []int) string {
-	parts := make([]string, len(ns))
-	for i, n := range ns {
-		parts[i] = fmt.Sprint(n)
-	}
-	return strings.Join(parts, ", ")
 }
 
 // episodeOrder ranks two show Releases of equal quality, points and

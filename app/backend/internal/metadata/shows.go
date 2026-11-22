@@ -59,6 +59,13 @@ type Show struct {
 	// AltStale says the release-name numbers could not be read this time
 	// (the metadata server failed), so stored ones are kept.
 	AltStale bool `json:"-"`
+	// AnimeParts are the anime's parts with the season each sits in, from
+	// the metadata server's anime map; none when the map does not know the
+	// show or could not be read.
+	AnimeParts []AnimePart `json:"-"`
+	// AnimeSideNames are the names the anime map lists with the show that
+	// are no name of the whole show (a spin-off, the specials).
+	AnimeSideNames []string `json:"-"`
 	// Grouped says the release-name numbers come from a chosen TMDB
 	// episode order.
 	Grouped bool `json:"-"`

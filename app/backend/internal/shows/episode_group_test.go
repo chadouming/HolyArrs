@@ -151,7 +151,7 @@ func TestEpisodeGroupRenumbersAndBack(t *testing.T) {
 		refs = append(refs, mediafiles.EpisodeRef{ItemID: r.ID, Season: 3, Episode: n, AltSeason: r.Alt[0], AltEpisode: r.Alt[1]})
 	}
 	for name, tmdbEp := range map[string]int{"Trapped.S03E03.1080p.WEB.H264-GRP": 4, "Trapped.S03E04.1080p.WEB.H264-GRP": 3, "Trapped.S03E07.1080p.WEB.H264-GRP": 7} {
-		got, why := mediafiles.MatchEpisodes(releasename.Parse(name, releasename.Hints{Show: true}), library.OrderAired, refs)
+		got, why := mediafiles.MatchEpisodes(releasename.Parse(name, releasename.Hints{Show: true}), library.OrderAired, refs, nil)
 		if len(got) != 1 || got[0].ItemID != after[tmdbEp].ID {
 			t.Fatalf("%s: %+v %s, want TMDB E%d", name, got, why, tmdbEp)
 		}

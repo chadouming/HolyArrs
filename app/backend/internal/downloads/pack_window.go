@@ -159,6 +159,9 @@ func (m *Manager) buildPack(ctx context.Context, d domain.Download, files []Torr
 	if err != nil {
 		return nil, err
 	}
+	// A pack whose files are named after one part of the show ("... Ougon no
+	// Kaze-20") maps onto that part's episodes.
+	parts := mediafiles.PartsOfSlot(ctx, m.Store.Read(), d.SlotIDs[0])
 	refs := make([]mediafiles.EpisodeRef, len(eps))
 	byItem := map[int64]packEp{}
 	for i, e := range eps {
@@ -175,7 +178,7 @@ func (m *Manager) buildPack(ctx context.Context, d domain.Download, files []Torr
 		if mediafiles.IsPack(p) {
 			continue
 		}
-		found, why := mediafiles.MatchEpisodes(p, order, refs)
+		found, why := mediafiles.MatchEpisodes(p, order, refs, parts)
 		if why != "" || len(found) == 0 {
 			continue
 		}

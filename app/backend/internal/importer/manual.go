@@ -236,7 +236,7 @@ func (im *Importer) ScanByHand(ctx context.Context, root string) (ByHandScan, er
 		if t.Year != nil {
 			year = *t.Year
 		}
-		refs = append(refs, mediafiles.TitleRef{ID: t.ID, Name: t.Name, Aliases: OtherNames(t), Year: year, Kind: t.Kind})
+		refs = append(refs, mediafiles.TitleRef{ID: t.ID, Name: t.Name, Aliases: OtherNames(t), Year: year, Kind: t.Kind, Parts: mediafiles.PartsFor(t)})
 	}
 	cache := map[int64]*byHandTitle{}
 	music, err := newMusicLibrary(ctx, db)
@@ -338,7 +338,7 @@ func (im *Importer) guessByHand(ctx context.Context, db *sql.DB, cache map[int64
 			order = *bt.t.EpisodeOrder
 		}
 		sp := releasename.Parse(filepath.Base(f.Path), releasename.Hints{Size: f.Size, Show: true})
-		found, why := mediafiles.MatchEpisodes(sp, order, bt.refs)
+		found, why := mediafiles.MatchEpisodes(sp, order, bt.refs, mediafiles.PartsFor(bt.t))
 		if len(found) == 0 {
 			f.Guess.Detail = why
 			return nil
@@ -523,7 +523,7 @@ func (im *Importer) importOneByHand(ctx context.Context, db *sql.DB, ns mediafil
 		if folder == "" || folder == "." || folder == ".." {
 			folder = mediafiles.ShowFolder(ns, mediafiles.NameFacts{Title: ti.Name, Year: year})
 		}
-		t := ShowTarget{FolderName: folder, Show: mediafiles.TitleRef{ID: ti.ID, Name: ti.Name, Year: year, Kind: "show"}, IDs: ti.SourceIDs, Order: mediafiles.OrderAired, Naming: &ns,
+		t := ShowTarget{FolderName: folder, Show: mediafiles.TitleRef{ID: ti.ID, Name: ti.Name, Year: year, Kind: "show", Parts: mediafiles.PartsFor(ti)}, IDs: ti.SourceIDs, Order: mediafiles.OrderAired, Naming: &ns,
 			ByOrder: ti.EpisodeGroupID != nil && *ti.EpisodeGroupID != ""}
 		if ti.EpisodeOrder != nil && *ti.EpisodeOrder != "" {
 			t.Order = *ti.EpisodeOrder

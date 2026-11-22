@@ -233,7 +233,7 @@ func PlanEpisodes(cands []Candidate, t ShowTarget) []mediafiles.PlanStep {
 				s.Method, s.Why = "refuse", []string{"does not match the show: " + m.Detail}
 				break
 			}
-			found, why := mediafiles.MatchEpisodes(p, t.Order, refs)
+			found, why := mediafiles.MatchEpisodes(p, t.Order, refs, t.Show.Parts)
 			var eps, want []Episode
 			for _, f := range found {
 				e := byItem[f.ItemID]

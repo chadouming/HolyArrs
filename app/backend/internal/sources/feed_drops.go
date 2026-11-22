@@ -74,7 +74,7 @@ func matchFeedItem(it Item, refs []mediafiles.TitleRef, hasShow, hasArtist bool)
 func titleRefs(titles []mediafiles.Title) []mediafiles.TitleRef {
 	refs := make([]mediafiles.TitleRef, 0, len(titles))
 	for _, title := range titles {
-		ref := mediafiles.TitleRef{ID: title.ID, Name: title.Name, Aliases: title.Aliases, Tags: title.Tags}
+		ref := mediafiles.TitleRef{ID: title.ID, Name: title.Name, Aliases: title.Aliases, Tags: title.Tags, Parts: mediafiles.PartsFor(title)}
 		if title.Year != nil {
 			ref.Year = *title.Year
 		}

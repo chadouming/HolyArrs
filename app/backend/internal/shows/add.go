@@ -223,7 +223,7 @@ func (s *Service) AddShow(ctx context.Context, id string, opt ShowAddOptions, by
 	}
 	var adoptFiles []library.AdoptEpisodeFile
 	if opt.Adopt != nil {
-		adoptFiles = mapEpisodeFiles(library.ListVideosN(lf.Path, opt.Adopt.FolderName, maxShowVideos), sh, opt.EpisodeOrder)
+		adoptFiles = mapEpisodeFiles(library.ListVideosN(lf.Path, opt.Adopt.FolderName, maxShowVideos), sh, opt.EpisodeOrder, newShowParts(sh, opt.EpisodeOrder))
 		for i := range adoptFiles {
 			if opt.SeasonsDiffer {
 				adoptFiles[i].Keys, adoptFiles[i].Episodes, adoptFiles[i].Why = nil, []string{}, "the old app numbers this show's seasons differently"

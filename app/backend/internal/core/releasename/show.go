@@ -24,6 +24,20 @@ var (
 	// more, so "Season 1 - 2" (seasons) and "Season 2 - 1080p" stay out.
 	reSeasonWordDash = regexp.MustCompile(`(?i)\b(?:Season` + sep + `?(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)` + sep + `Season)\s+-\s+(\d{2,4})(?:v(\d))?(?:\s?[-~]\s?(\d{2,4}))?\b`)
 	reAbsolute       = regexp.MustCompile(`\s-\s(\d{1,4})(?:v(\d))?(?:\s?-\s?(\d{1,4}))?(?:\s|$|[\[(])`)
+	// "Title-20 [tags]": the running number right after the title, as some
+	// anime groups write it. A letter, the dash, two or three digits, then
+	// the tags or the end: "01-12" is a range and "Yamato-2199" a title. The
+	// last episode may be marked: "Title-24 END [tags]".
+	reAbsoluteTight = regexp.MustCompile(`\p{L}(-(\d{2,3})(?:v(\d))?(?i:\s+(?:END|FIN|FINAL))?\s*(?:$|[\[(]))`)
+	// "Title.E12.720p": an episode number with no season. Two digits or more.
+	reBareEpisode = regexp.MustCompile(`(?i)[\s._]E(\d{2,4})(?:v(\d))?(?:[\s._]|$)`)
+	// "E12.5", a recap between two episodes.
+	reHalfEpisode = regexp.MustCompile(`^\d(?:[\s._]|$)`)
+	// "Title.YEAR-13.[tags]": the show's year, then the running number. Two
+	// years are a span of years: the number has two or three digits.
+	reAbsoluteAfterYear = regexp.MustCompile(`[\s._](?:19|20)\d{2}(-(\d{2,3})(?:v(\d))?(?i:[\s.]+(?:END|FIN|FINAL))?[\s.]*(?:$|[\[(]))`)
+	// Words whose number counts something else than the show's episodes.
+	reNotEpisodeWord = regexp.MustCompile(`(?i)(?:^|[\s._])(?:movie|film|ova|oad|ona|sp|ncop|nced|op|ed|pv|cm|part|pt|ep|vol|volume|season|s\d{1,2})$`)
 	reSeason         = regexp.MustCompile(`(?i)\b(?:S|Season` + sep + `?)(\d{1,2})\b`)
 	rePart           = regexp.MustCompile(`(?i)\b(?:Part|Pt)` + sep + `?(\d{1,2}|[IVX]{1,5})\b`)
 )
@@ -134,6 +148,15 @@ func findShow(s string, anime, show bool) (showHit, int, int, bool) {
 		}
 		return h, m[0], m[1], true
 	}
+	// An episode with no season is the show's running number.
+	if m := reBareEpisode.FindStringSubmatchIndex(s); m != nil && strings.TrimSpace(s[:m[0]]) != "" &&
+		!(s[m[1]-1] == '.' && reHalfEpisode.MatchString(s[m[1]:])) {
+		h := showHit{kind: KindAbsolute, n: ShowNumbers{Absolute: []int{atoi(s[m[2]:m[3]])}}}
+		if m[4] >= 0 {
+			h.fix = atoi(s[m[4]:m[5]]) - 1
+		}
+		return h, m[0], m[1], true
+	}
 	// A running number only for an anime name or a show search, never a year.
 	if m := reAbsolute.FindStringSubmatchIndex(s); m != nil && (anime || show) && !isYearNum(s[m[2]:m[3]]) {
 		a := atoi(s[m[2]:m[3]])
@@ -156,6 +179,32 @@ func findShow(s string, anime, show bool) (showHit, int, int, bool) {
 			end-- // keep the bracket for the tags
 		}
 		return h, m[0], end, true
+	}
+	// The same number with no space around the dash, only after a [group] and
+	// a title of two words or more: "R-15" and "Catch-22" are titles, and so
+	// is a number after "Movie", "OVA", "Part" and the like.
+	if m := reAbsoluteTight.FindStringSubmatchIndex(s); m != nil && anime && strings.ContainsAny(strings.TrimSpace(s[:m[2]]), " .") && !reNotEpisodeWord.MatchString(s[:m[2]]) {
+		h := showHit{kind: KindAbsolute, n: ShowNumbers{Absolute: []int{atoi(s[m[4]:m[5]])}}}
+		if m[6] >= 0 {
+			h.fix = atoi(s[m[6]:m[7]]) - 1
+		}
+		end := m[1]
+		if strings.ContainsAny(s[end-1:end], "[(") {
+			end-- // keep the bracket for the tags
+		}
+		return h, m[2], end, true
+	}
+	// The same after the show's year, which stays with the title.
+	if m := reAbsoluteAfterYear.FindStringSubmatchIndex(s); m != nil && anime && strings.TrimSpace(s[:m[0]]) != "" {
+		h := showHit{kind: KindAbsolute, n: ShowNumbers{Absolute: []int{atoi(s[m[4]:m[5]])}}}
+		if m[6] >= 0 {
+			h.fix = atoi(s[m[6]:m[7]]) - 1
+		}
+		end := m[1]
+		if strings.ContainsAny(s[end-1:end], "[(") {
+			end-- // keep the bracket for the tags
+		}
+		return h, m[2], end, true
 	}
 	if m := reSeason.FindStringSubmatchIndex(s); m != nil {
 		season := atoi(s[m[2]:m[3]])
@@ -246,3 +295,17 @@ func episodeRun(more string, first int) []int {
 
 // isYearNum says a number reads as a year (1900 to 2099).
 func isYearNum(v string) bool { return reYear.MatchString(v) }
+
+// takeLeadGroup handles a name that began with a [group] but gave no episode
+// numbers (an anime movie, a whole show): the [group] is still the group and
+// no part of the title. It returns the name without it; body is s after the
+// [group] and lead what the brackets held ("" when there were none).
+func takeLeadGroup(r *Result, s, body, lead string) string {
+	if lead == "" {
+		return s
+	}
+	if r.Group.Conf == Unknown {
+		r.Group = sure(lead)
+	}
+	return s[len(s)-len(body):]
+}

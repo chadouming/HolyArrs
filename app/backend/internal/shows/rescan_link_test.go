@@ -19,7 +19,7 @@ import (
 func TestMapEpisodeFilesTrustsTheShowsFolder(t *testing.T) {
 	sh := metadata.Show{Name: "Lab Show", Year: 2025, Episodes: []metadata.Episode{{Season: 1, Number: 1}, {Season: 1, Number: 2}}}
 	vids := []library.AdoptVideo{{Path: "Season 1/Lab Series UK - S01E01.mkv", Size: 2 << 20}, {Path: "Season 1/LS.S01E02.720p.mkv", Size: 1 << 20}}
-	for _, f := range mapEpisodeFiles(vids, sh, "aired") {
+	for _, f := range mapEpisodeFiles(vids, sh, "aired", nil) {
 		if len(f.Episodes) != 1 {
 			t.Fatalf("%s: not matched (%s)", f.Path, f.Why)
 		}

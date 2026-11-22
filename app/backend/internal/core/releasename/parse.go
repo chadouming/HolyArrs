@@ -325,6 +325,7 @@ func Parse(name string, h Hints) Result {
 		slices.Sort(r.Flags)
 		return r
 	}
+	s = takeLeadGroup(&r, s, body, lead)
 
 	toks := reSeparators.Split(strings.TrimSpace(s), -1)
 	toks = slices.DeleteFunc(toks, func(t string) bool { return t == "" })

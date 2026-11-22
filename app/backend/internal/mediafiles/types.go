@@ -26,28 +26,30 @@ type LibraryFolder struct {
 // Title is one movie, show or artist in the Library.
 type Title struct {
 	database.Meta
-	Kind             string            `db:"kind"` // movie, show, artist
-	Name             string            `db:"name"`
-	SortName         string            `db:"sort_name"`
-	OriginalName     *string           `db:"original_name"`
-	Year             *int              `db:"year"`
-	Overview         *string           `db:"overview"`
-	OriginalLanguage *string           `db:"original_language"`
-	Aliases          []string          `db:"aliases,json"`
-	SourceIDs        map[string]string `db:"source_ids,json"`
-	MetadataSource   string            `db:"metadata_source"` // tmdb, tvmaze, tvdb, musicbrainz
-	EpisodeOrder     *string           `db:"episode_order"`
-	EpisodeGroupID   *string           `db:"episode_group_id"` // the TMDB episode order followed; nil: TMDB's own
-	KeepUpToDate     bool              `db:"keep_up_to_date"`
-	NewPartsPolicy   string            `db:"new_parts_policy"` // all, future_only, none
-	ReleaseGate      string            `db:"release_gate"`     // announced, in_cinemas, released
-	GateDelayDays    int               `db:"gate_delay_days"`
-	MusicTypes       []string          `db:"music_types,json"`
-	WhyAdded         string            `db:"why_added"`
-	Artwork          []string          `db:"artwork,json"`
-	RefreshedAt      *time.Time        `db:"refreshed_at"`
-	Status           string            `db:"status"` // announced, running, ended, released
-	State            string            `db:"state"`  // added, looked_up, active, removed, lookup_failed
+	Kind             string   `db:"kind"` // movie, show, artist
+	Name             string   `db:"name"`
+	SortName         string   `db:"sort_name"`
+	OriginalName     *string  `db:"original_name"`
+	Year             *int     `db:"year"`
+	Overview         *string  `db:"overview"`
+	OriginalLanguage *string  `db:"original_language"`
+	Aliases          []string `db:"aliases,json"`
+	// PartNames are the names that point at one part of the show (nil: none).
+	PartNames      []PartName        `db:"part_names,json"`
+	SourceIDs      map[string]string `db:"source_ids,json"`
+	MetadataSource string            `db:"metadata_source"` // tmdb, tvmaze, tvdb, musicbrainz
+	EpisodeOrder   *string           `db:"episode_order"`
+	EpisodeGroupID *string           `db:"episode_group_id"` // the TMDB episode order followed; nil: TMDB's own
+	KeepUpToDate   bool              `db:"keep_up_to_date"`
+	NewPartsPolicy string            `db:"new_parts_policy"` // all, future_only, none
+	ReleaseGate    string            `db:"release_gate"`     // announced, in_cinemas, released
+	GateDelayDays  int               `db:"gate_delay_days"`
+	MusicTypes     []string          `db:"music_types,json"`
+	WhyAdded       string            `db:"why_added"`
+	Artwork        []string          `db:"artwork,json"`
+	RefreshedAt    *time.Time        `db:"refreshed_at"`
+	Status         string            `db:"status"` // announced, running, ended, released
+	State          string            `db:"state"`  // added, looked_up, active, removed, lookup_failed
 	// Release dates from the metadata source (movies).
 	CinemaDate   *time.Time `db:"cinema_date"`
 	DigitalDate  *time.Time `db:"digital_date"`
@@ -212,13 +214,13 @@ type PickRules struct {
 
 // PlanStep is one file in an Import plan.
 type PlanStep struct {
-	SourceFile     string   `json:"source_file"`
-	TargetSlotIDs  []int64  `json:"target_slot_ids"`
-	TargetPath     string   `json:"target_path"`
-	Method         string   `json:"method"` // hardlink, move, copy
+	SourceFile    string  `json:"source_file"`
+	TargetSlotIDs []int64 `json:"target_slot_ids"`
+	TargetPath    string  `json:"target_path"`
+	Method        string  `json:"method"` // hardlink, move, copy
 	// Move tries a rename into the Library first: the file is not needed in
 	// the download folder afterwards (a finished Usenet job, an unpacked file).
-	Move bool `json:"move,omitempty"`
+	Move           bool     `json:"move,omitempty"`
 	ReplacesFileID *int64   `json:"replaces_file_id,omitempty"`
 	Confidence     float64  `json:"confidence"`
 	Why            []string `json:"why"`

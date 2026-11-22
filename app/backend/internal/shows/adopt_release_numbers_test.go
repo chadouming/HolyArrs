@@ -22,7 +22,7 @@ func TestMapEpisodeFilesTakesReleaseNameNumbers(t *testing.T) {
 		}
 		sh.Episodes = append(sh.Episodes, e)
 	}
-	got := mapEpisodeFiles([]library.AdoptVideo{{Path: "Mashle - S02E05 - Something.mkv", Size: 1 << 20}}, sh, "aired")
+	got := mapEpisodeFiles([]library.AdoptVideo{{Path: "Mashle - S02E05 - Something.mkv", Size: 1 << 20}}, sh, "aired", nil)
 	if len(got[0].Keys) != 1 || got[0].Keys[0] != [2]int{1, 17} {
 		t.Fatalf("got %+v, want stored S01E17", got[0])
 	}

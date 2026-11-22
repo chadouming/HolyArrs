@@ -98,7 +98,7 @@ func matchShowFolder(ctx context.Context, p metadata.ShowProvider, folder string
 // folder is the show's, so the show name in a file name does not count, as
 // in Sonarr. A file naming no episode, or an episode a bigger file holds
 // too, is listed with the reason and left alone.
-func mapEpisodeFiles(vids []library.AdoptVideo, sh metadata.Show, order string) []library.AdoptEpisodeFile {
+func mapEpisodeFiles(vids []library.AdoptVideo, sh metadata.Show, order string, parts []mediafiles.PartName) []library.AdoptEpisodeFile {
 	refs := make([]mediafiles.EpisodeRef, len(sh.Episodes))
 	for i, e := range sh.Episodes {
 		refs[i] = mediafiles.EpisodeRef{ItemID: int64(i + 1), Season: e.Season, Episode: e.Number, Absolute: e.Absolute, AirDay: e.AirDay, AltSeason: e.AltSeason, AltEpisode: e.AltEpisode}
@@ -114,7 +114,7 @@ func mapEpisodeFiles(vids []library.AdoptVideo, sh metadata.Show, order string) 
 		case mediafiles.IsPack(p):
 			f.Why = "the file name names whole seasons, not episodes"
 		default:
-			found, why := mediafiles.MatchEpisodes(p, order, refs)
+			found, why := mediafiles.MatchEpisodes(p, order, refs, parts)
 			if len(found) == 0 {
 				f.Why = why
 				break
@@ -251,7 +251,7 @@ func PlanShowAdoptFrom(ctx context.Context, db library.Reader, shows metadata.Sh
 		if err != nil {
 			return p, err
 		}
-		c.Files = mapEpisodeFiles(vids, sh, defs.EpisodeOrder)
+		c.Files = mapEpisodeFiles(vids, sh, defs.EpisodeOrder, newShowParts(sh, defs.EpisodeOrder))
 		for _, f := range c.Files {
 			if len(f.Episodes) > 0 {
 				c.Episodes += len(f.Episodes)
@@ -511,7 +511,7 @@ func (s *Service) recordFoundEpisodes(ctx context.Context, lf mediafiles.Library
 		}
 	}
 	n := 0
-	for _, af := range mapEpisodeFiles(unknown, sh, order) {
+	for _, af := range mapEpisodeFiles(unknown, sh, order, mediafiles.PartsFor(t)) {
 		note := notes[strings.ToLower(af.Path)]
 		if note == 0 {
 			var exists int
@@ -643,4 +643,14 @@ func leftoverReason(af library.AdoptEpisodeFile, slots int) string {
 		return "bigger_file_same_episode"
 	}
 	return "episode_not_listed"
+}
+
+// newShowParts are the part names of a show that is not in the Library yet,
+// for the files found in its folder: files named after one part of the show
+// count inside that part. None for a show added in another episode order.
+func newShowParts(sh metadata.Show, order string) []mediafiles.PartName {
+	if order != "" && order != mediafiles.OrderAired {
+		return nil
+	}
+	return partNames(sh.Name, sh.OtherNames, sh, nil)
 }

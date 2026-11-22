@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"log"
 	"time"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
@@ -230,6 +232,25 @@ func LoadItem(ctx context.Context, q database.Querier, id int64, dest *Item) err
 // LoadTitle reads one Title by id into dest.
 func LoadTitle(ctx context.Context, q database.Querier, id int64, dest *Title) error {
 	return database.Get(ctx, q, "titles", id, dest)
+}
+
+// PartsOfSlot are the part names (PartsFor) of the show a Slot belongs to;
+// none when the Slot is not there. A read that fails gives none too and is
+// logged, since the caller then maps by running number.
+func PartsOfSlot(ctx context.Context, q database.Querier, slotID int64) []PartName {
+	var titleID int64
+	var t Title
+	err := q.QueryRowContext(ctx, "SELECT i.title_id FROM slots s JOIN items i ON i.id = s.item_id WHERE s.id = ?", slotID).Scan(&titleID)
+	if err == nil {
+		err = LoadTitle(ctx, q, titleID, &t)
+	}
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, database.ErrNotFound) {
+			log.Printf("part names of the show of slot %d: %v", slotID, err)
+		}
+		return nil
+	}
+	return PartsFor(t)
 }
 
 // LoadPickRules reads one set of pick rules by id into dest.

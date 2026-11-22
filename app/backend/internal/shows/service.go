@@ -169,6 +169,7 @@ func applyShow(t *mediafiles.Title, sh metadata.Show) {
 	t.Overview, t.OriginalLanguage = str(sh.Overview), str(sh.OriginalLanguage)
 	t.Network, t.AirTime, t.TimeZone = str(sh.Network), str(sh.AirTime), str(sh.TimeZone)
 	t.Aliases = library.MergeAliases(t.Aliases, sh.Name, sh.OtherNames)
+	t.PartNames = partNames(sh.Name, t.Aliases, sh, t.PartNames)
 	switch sh.Status {
 	case "ended", "announced", "running":
 		t.Status = sh.Status

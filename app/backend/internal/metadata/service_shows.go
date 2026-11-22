@@ -134,6 +134,15 @@ func (p *serviceShows) releaseNumbers(ctx context.Context, tmdbID string, out *S
 	m, err := p.service.AnimeMap(ctx, "tmdb_tv", tmdbID)
 	switch {
 	case err == nil:
+		have := map[int]bool{}
+		for _, s := range out.Seasons {
+			have[s.Number] = true
+		}
+		for _, ep := range out.Episodes {
+			have[ep.Season] = true
+		}
+		out.AnimeParts = m.PartNames(tmdbID, have)
+		out.AnimeSideNames = m.SideNames(tmdbID)
 		if m.SetReleaseNumbers(tmdbID, out.Seasons, out.Episodes) {
 			return
 		}
