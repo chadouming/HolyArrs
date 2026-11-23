@@ -81,7 +81,8 @@
 		sound: 'M4.5 9.5h3l4.5-4v13l-4.5-4h-3zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11',
 		soundOff: 'M4.5 9.5h3l4.5-4v13l-4.5-4h-3zM15.5 9.5l5 5M20.5 9.5l-5 5',
 		replay: 'M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v4.5H9',
-		expand: 'M14 4.5h5.5V10M19.5 4.5l-6 6M10 19.5H4.5V14M4.5 19.5l6-6'
+		expand: 'M14 4.5h5.5V10M19.5 4.5l-6 6M10 19.5H4.5V14M4.5 19.5l6-6',
+		transcode: 'M4.5 9.3A8 8 0 0 1 18 6.5M18 3.5v3h-3M19.5 14.7A8 8 0 0 1 6 17.5M6 20.5v-3h3M10.2 9.2v5.6l4.8-2.8z'
 	} as const;
 	export type IconName = keyof typeof paths;
 </script>

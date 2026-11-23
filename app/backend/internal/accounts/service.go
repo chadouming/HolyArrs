@@ -41,7 +41,7 @@ const (
 	IdleTimeout     = 7 * 24 * time.Hour
 	AbsoluteTimeout = 30 * 24 * time.Hour
 	RotateEvery     = time.Hour
-	rotateGrace     = time.Minute // an old id keeps working this long, for requests already in flight
+	rotateGrace     = 5 * time.Minute // an old id keeps working this long, for requests already in flight or waking tabs
 	touchEvery      = RotateEvery
 )
 

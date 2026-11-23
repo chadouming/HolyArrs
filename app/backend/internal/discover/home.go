@@ -156,10 +156,17 @@ func (h *Handlers) home(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	}
+	failedSQL, sickSQL := "0", "0"
+	if v.Owner {
+		failedSQL = "(SELECT count(*) FROM slots WHERE state = 'failed')"
+		if !signed || who.Has(webserver.PermSettings) {
+			sickSQL = "(SELECT count(*) FROM health_checks WHERE confirmed != 'ok')"
+		}
+	}
 	run(func() error {
-		return db.QueryRowContext(ctx, "SELECT count(*) FROM titles WHERE state != 'removed'").Scan(&titles)
+		q := "SELECT (SELECT count(*) FROM titles WHERE state != 'removed'), (SELECT count(*) FROM asks), " + failedSQL + ", " + sickSQL
+		return db.QueryRowContext(ctx, q).Scan(&titles, &asked, &failed, &sick)
 	})
-	run(func() error { return db.QueryRowContext(ctx, "SELECT count(*) FROM asks").Scan(&asked) })
 	run(func() (err error) { arrived, err = homeArrivals(ctx, db, where, args, now); return })
 	run(func() (err error) { seasons, err = homeNewSeasons(ctx, db, where, args, now); return })
 	if !v.Kid {
@@ -167,16 +174,6 @@ func (h *Handlers) home(w http.ResponseWriter, r *http.Request) {
 		run(func() (err error) { soon, err = homeComingSoon(ctx, db, where, args, now); return })
 	}
 	run(func() (err error) { progress, err = homeAskProgress(ctx, db, me); return })
-	if v.Owner {
-		run(func() error {
-			return db.QueryRowContext(ctx, "SELECT count(*) FROM slots WHERE state = 'failed'").Scan(&failed)
-		})
-		if !signed || who.Has(webserver.PermSettings) {
-			run(func() error {
-				return db.QueryRowContext(ctx, "SELECT count(*) FROM health_checks WHERE confirmed != 'ok'").Scan(&sick)
-			})
-		}
-	}
 	run(func() (err error) { library, err = homeLibraryCounts(ctx, db, where, args, now, kinds); return })
 	wg.Wait()
 	if firstErr != nil {

@@ -192,19 +192,15 @@ func (im *Importer) importShow(ctx context.Context, d domain.Download, dr domain
 	plan = append(plan, bad...)
 	gone := sourcesGone(root, plan, dr.Protocol == "usenet")
 	lowSpace, release := im.guard(plan, lf.Path, cands, rules)
-	defer release()
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 	if music {
 		wholeAlbumSpace(plan, lowSpace)
 	}
 
-	filled := map[int64]bool{}
-	for _, st := range plan {
-		if st.Method == "hardlink" {
-			for _, id := range st.TargetSlotIDs {
-				filled[id] = true
-			}
-		}
-	}
 	olds := map[int][]mediafiles.File{}
 	inspected := map[string]map[string]any{}
 	fakes := im.refuseFakes(ctx, db)
@@ -213,101 +209,16 @@ func (im *Importer) importShow(ctx context.Context, d domain.Download, dr domain
 		_ = db.QueryRowContext(ctx, "SELECT COALESCE(size, 0) FROM releases WHERE id = ?", *d.ReleaseID).Scan(&claimed)
 	}
 	mismatch := fakes.claimMismatch(claimed, claimSet(d, cands))
-	for i := range plan {
-		if plan[i].Method != "hardlink" {
-			continue
-		}
-		seen := map[int64]bool{}
-		for _, id := range plan[i].TargetSlotIDs {
-			ss := slots[id]
-			if ss == nil || ss.sl.FileID == nil || seen[*ss.sl.FileID] {
-				continue
+	confirmedSamples := map[string]bool{}
+	if inspectShowSteps(ctx, db, plan, allPlanIndices(len(plan)), slots, ver, lf, pr, relName, music, fakes, mismatch, olds, inspected, confirmedSamples) && !music {
+		plan = showSampleFallback(ctx, db, cands, t, plan, slots, ver, lf, pr, relName, fakes, mismatch, olds, inspected, confirmedSamples, func(updated []mediafiles.PlanStep) {
+			if release != nil {
+				release()
 			}
-			seen[*ss.sl.FileID] = true
-			var f mediafiles.File
-			if err := database.Get(ctx, db, "files", *ss.sl.FileID, &f); err == nil && f.State == "present" {
-				olds[i] = append(olds[i], f)
-			}
-		}
-		copyWhy := ""
-		for _, old := range olds[i] {
-			if old.Protected {
-				copyWhy = "the copy in place is protected; choose another Version for an upgrade"
-			}
-		}
-		if !music && copyWhy == "" {
-			facts := InspectFacts(plan[i].SourceFile)
-			inspected[plan[i].SourceFile] = facts
-			copyWhy = unreadOr(copyRefusal(ver, filepath.Base(plan[i].SourceFile), relName, "", facts), facts, plan[i].SourceFile)
-		}
-		if copyWhy != "" {
-			plan[i].Method, plan[i].TargetPath = "refuse", ""
-			plan[i].Why = append(plan[i].Why, copyWhy)
-			delete(olds, i)
-			continue
-		}
-		minutes := 0
-		for _, id := range plan[i].TargetSlotIDs {
-			if ss := slots[id]; ss != nil && ss.it.Runtime != nil && minutes >= 0 {
-				minutes += *ss.it.Runtime
-			} else {
-				minutes = -1
-			}
-		}
-		if !music && sampleByLength(inspected[plan[i].SourceFile], fakes.lengthMinutes(max(minutes, 0))) {
-			plan[i].Method, plan[i].TargetPath = "refuse", ""
-			plan[i].Why = append(plan[i].Why, "a sample, not the full video (it plays "+lengthWords(factInt(inspected[plan[i].SourceFile], "runtime_seconds"))+")")
-			delete(olds, i)
-			continue
-		}
-		why, err := fakes.fakeFileOf(plan[i].SourceFile, music, max(minutes, 0), relName)
-		if err != nil {
-			plan[i].Method, plan[i].TargetPath = "refuse", ""
-			plan[i].Why = append(plan[i].Why, unreadable(err))
-			continue
-		}
-		if why == "" {
-			why = mismatch
-		}
-		if why != "" {
-			for _, id := range plan[i].TargetSlotIDs {
-				slots[id].lie = why
-			}
-			plan[i].Method, plan[i].TargetPath = "refuse", ""
-			plan[i].Why = append(plan[i].Why, why)
-			continue
-		}
-		name := strings.TrimSuffix(filepath.Base(plan[i].SourceFile), filepath.Ext(plan[i].SourceFile))
-		oldName := ""
-		if len(olds[i]) > 0 {
-			oldName = fileName(olds[i][0])
-		}
-		why = lieOf(name, relName, len(olds[i]) > 0, oldName, pr.Body, inspected[plan[i].SourceFile])
-		if why == "" && music && len(olds[i]) > 0 {
-			why = lossyOverLossless(plan[i].SourceFile, relName, olds[i][0], filepath.Join(lf.Path, filepath.FromSlash(olds[i][0].RelativePath)), pr.Body)
-		}
-		if why != "" {
-			for _, id := range plan[i].TargetSlotIDs {
-				slots[id].lie = why
-			}
-			plan[i].Method, plan[i].TargetPath = "refuse", ""
-			plan[i].Why = append(plan[i].Why, why)
-			delete(olds, i)
-			continue
-		}
-		if len(olds[i]) > 0 {
-			id := olds[i][0].ID
-			plan[i].ReplacesFileID = &id
-		}
+			lowSpace, release = im.guard(updated, lf.Path, cands, rules)
+		})
 	}
-	filled = map[int64]bool{}
-	for _, st := range plan {
-		if st.Method == "hardlink" {
-			for _, id := range st.TargetSlotIDs {
-				filled[id] = true
-			}
-		}
-	}
+	filled := filledSlotSet(plan)
 	for i, st := range plan {
 		for _, id := range st.TargetSlotIDs {
 			if ss := slots[id]; ss != nil && st.Method == "hardlink" {

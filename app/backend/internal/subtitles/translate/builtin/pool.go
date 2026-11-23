@@ -49,12 +49,35 @@ func (p *Pool) Running() bool {
 	return false
 }
 
+// RunningOn reports whether the runner for device has a loaded process.
+func (p *Pool) RunningOn(device string) bool {
+	p.mu.Lock()
+	r := p.runners[device]
+	p.mu.Unlock()
+	return r != nil && r.Resident()
+}
+
+// ActiveOn reports whether the runner for device is actively serving calls.
+func (p *Pool) ActiveOn(device string) bool {
+	p.mu.Lock()
+	r := p.runners[device]
+	p.mu.Unlock()
+	return r != nil && r.Active()
+}
+
 // StopIdle stops the runner for device if it exists and is idle.
 func (p *Pool) StopIdle(device string) {
 	p.mu.Lock()
 	r := p.runners[device]
 	p.mu.Unlock()
 	if r != nil {
+		r.StopIfIdle()
+	}
+}
+
+// StopIdleAll stops every idle runner in the pool.
+func (p *Pool) StopIdleAll() {
+	for _, r := range p.all() {
 		r.StopIfIdle()
 	}
 }

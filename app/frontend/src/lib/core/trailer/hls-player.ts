@@ -2,7 +2,7 @@
 import type HlsType from 'hls.js';
 import { to } from '../paths.ts';
 
-export const HLS_VERSION = '1.7.3';
+export const HLS_VERSION = '1.7.4';
 export const hlsScript = `/vendor/hls-${HLS_VERSION}.min.js`;
 
 // maxBufferLength alone does not hold: hls.js grows the goal toward its larger

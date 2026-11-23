@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Quitada del gestor de descargas",
 	"frame.feeds.clearStill": "Aún sin quitar",
 	"frame.error.pageGone": "Esta página no existe. Puede que el enlace sea antiguo o esté mal escrito.",
-	"frame.nav.subtitles": "Subtítulos"
+	"frame.nav.subtitles": "Subtítulos",
+	"frame.nav.transcode": "Transcodificar"
 }

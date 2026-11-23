@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Na-clear mula sa Downloader",
 	"frame.feeds.clearStill": "Hindi pa na-clear",
 	"frame.error.pageGone": "Wala ang page na ito. Maaaring luma o mali ang pagkakasulat ng link.",
-	"frame.nav.subtitles": "Mga Subtitle"
+	"frame.nav.subtitles": "Mga Subtitle",
+	"frame.nav.transcode": "I-transcode"
 }

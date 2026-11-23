@@ -79,7 +79,8 @@ const (
 // Job is a whole file to translate: the batch details with every line.
 type Job struct {
 	Batch
-	Chunk int // lines per call at first; DefaultChunk when 0
+	Chunk    int // lines per call at first; DefaultChunk when 0
+	MaxChars int // character cap per new chunk; 0 means no extra cap beyond line count
 	// Progress, when set, is told how many more lines are settled after each
 	// call: translated, or given up on. A run in parts calls it from several
 	// goroutines at once.
@@ -146,8 +147,7 @@ func Run(ctx context.Context, c Client, j Job) (Result, error) {
 		if len(again) > 0 {
 			chunk, again = again[0], again[1:]
 		} else {
-			end := min(cursor+size, len(pending))
-			chunk, cursor = pending[cursor:end], end
+			chunk, cursor = nextChunk(j.Lines, pending, cursor, size, j.MaxChars)
 		}
 		b := j.Batch
 		b.Lines = make([]Line, len(chunk))
@@ -156,7 +156,7 @@ func Run(ctx context.Context, c Client, j Job) (Result, error) {
 		}
 		got, err := call(ctx, c, b, &res.Calls)
 		if err != nil {
-			switch KindOf(err) {
+			switch k := KindOf(err); k {
 			case KindCut, KindUnreadable:
 				// A translator that keeps failing this way is given up on, so a
 				// broken or too slow model never spends on every line.
@@ -166,7 +166,11 @@ func Run(ctx context.Context, c Client, j Job) (Result, error) {
 				// A smaller chunk usually fits and reads; one line that keeps
 				// failing keeps its source text.
 				size, good = max(1, len(chunk)/2), 0
-				again = append(retryChunks(chunk, tries, size), again...)
+				if k == KindCut && len(chunk) > 1 {
+					again = append(splitChunks(chunk, size), again...)
+				} else {
+					again = append(retryChunks(chunk, tries, size), again...)
+				}
 				continue
 			}
 			return res, err
@@ -218,6 +222,23 @@ func Run(ctx context.Context, c Client, j Job) (Result, error) {
 	return res, nil
 }
 
+// nextChunk returns the next slice of pending indices starting at cursor within
+// size lines and maxChars characters, along with the updated cursor.
+func nextChunk(lines []Line, pending []int, cursor, size, maxChars int) ([]int, int) {
+	end := cursor
+	chunkChars := 0
+	limit := min(cursor+max(size, 1), len(pending))
+	for end < limit {
+		lineChars := len(lines[pending[end]].Text)
+		if end > cursor && maxChars > 0 && chunkChars+lineChars > maxChars {
+			break
+		}
+		chunkChars += lineChars
+		end++
+	}
+	return pending[cursor:end:end], end
+}
+
 // retryChunks counts one more try for each line and splits the lines that may
 // still be tried into chunks of at most size.
 func retryChunks(lines []int, tries []int, size int) [][]int {
@@ -227,11 +248,16 @@ func retryChunks(lines []int, tries []int, size int) [][]int {
 			keep = append(keep, i)
 		}
 	}
+	return splitChunks(keep, size)
+}
+
+func splitChunks(lines []int, size int) [][]int {
+	size = max(size, 1)
 	var out [][]int
-	for len(keep) > 0 {
-		k := min(size, len(keep))
-		out = append(out, keep[:k:k])
-		keep = keep[k:]
+	for len(lines) > 0 {
+		k := min(size, len(lines))
+		out = append(out, lines[:k:k])
+		lines = lines[k:]
 	}
 	return out
 }

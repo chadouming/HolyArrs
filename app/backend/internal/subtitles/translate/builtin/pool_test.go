@@ -144,3 +144,74 @@ func TestClientPassesOverACardThatFails(t *testing.T) {
 		t.Fatalf("no card works: %v", err)
 	}
 }
+
+// Two separate Clients sharing the same Pool load-balance across GPUs via
+// Runner.Load and Reserve instead of piling onto Vulkan0.
+func TestClientsSharePoolLoadAcrossGPUs(t *testing.T) {
+	p := NewPool(nil)
+	t.Cleanup(p.Stop)
+	r0, r1 := p.Runner("Vulkan0"), p.Runner("Vulkan1")
+	o0, o1 := opts("a.gguf"), opts("a.gguf")
+	o0.GPU, o0.Parallel = "Vulkan0", 4
+	o1.GPU, o1.Parallel = "Vulkan1", 4
+	targets := []Target{{Runner: r0, Opts: o0}, {Runner: r1, Opts: o1}}
+	c1 := &Client{Name: "lab", Targets: targets}
+	c2 := &Client{Name: "lab", Targets: targets}
+
+	i1, _, done1, ok1 := c1.take(nil)
+	if !ok1 || i1 != 0 {
+		t.Fatalf("c1 first take = (%d, %v), want (0, true)", i1, ok1)
+	}
+	if r0.Load() != 1 || r1.Load() != 0 {
+		t.Fatalf("loads after c1 take = (%d, %d), want (1, 0)", r0.Load(), r1.Load())
+	}
+
+	i2, _, done2, ok2 := c2.take(nil)
+	if !ok2 || i2 != 1 {
+		t.Fatalf("c2 take = (%d, %v), want (1, true) to balance off Vulkan0", i2, ok2)
+	}
+	if r0.Load() != 1 || r1.Load() != 1 {
+		t.Fatalf("loads after c2 take = (%d, %d), want (1, 1)", r0.Load(), r1.Load())
+	}
+
+	// Releasing done1 twice must be idempotent.
+	done1()
+	done1()
+	if r0.Load() != 0 || r1.Load() != 1 {
+		t.Fatalf("loads after done1 = (%d, %d), want (0, 1)", r0.Load(), r1.Load())
+	}
+
+	i3, _, done3, ok3 := c2.take(nil)
+	if !ok3 || i3 != 0 {
+		t.Fatalf("c2 second take = (%d, %v), want (0, true)", i3, ok3)
+	}
+	done2()
+	done3()
+	if r0.Load() != 0 || r1.Load() != 0 {
+		t.Fatalf("loads after releasing all = (%d, %d), want (0, 0)", r0.Load(), r1.Load())
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 4)
+	for _, c := range []*Client{c1, c2, c1, c2} {
+		wg.Add(1)
+		go func(cl *Client) {
+			defer wg.Done()
+			_, err := cl.Translate(context.Background(), batch())
+			errs <- err
+		}(c)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r0.Load() != 0 || r1.Load() != 0 {
+		t.Fatalf("loads after concurrent Translate = (%d, %d), want (0, 0)", r0.Load(), r1.Load())
+	}
+	if r0.pid() == 0 || r1.pid() == 0 {
+		t.Fatalf("expected both runners to be used: pids (%d, %d)", r0.pid(), r1.pid())
+	}
+}

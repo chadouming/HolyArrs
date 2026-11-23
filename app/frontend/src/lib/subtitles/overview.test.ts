@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { doneParts, howWord, jobName, jobShare, jobWord, missingNeedQuery, nextStep, siteUse, speechState, waitingMore, workingCount, type Overview, type OverviewJob } from './overview.ts';
+import {
+	doneParts, fileBaseName, formatBacklogEta, formatSpeed, formatTimestamp, historyQuery, howWord, integrityIssueWord, jobName,
+	jobPhaseTone, jobPhaseWord, jobShare, jobWord, libraryPercent, missingNeedQuery, nextStep, parseSubtitlesTab,
+	siteUse, speechState, waitingMore, waitingQuery, workingCount, type Overview, type OverviewJob
+} from './overview.ts';
 
 const base: Overview = {
 	missing: 3,
@@ -50,11 +54,14 @@ describe('jobs', () => {
 	it('names a job by its title and episode, or its model', () => {
 		expect(jobName(job({ name: 'Quiet Harbour', season: 1, episode: 2 }))).toBe('Quiet Harbour S01E02');
 		expect(jobName(job({ name: 'The Lantern' }))).toBe('The Lantern');
+		expect(jobName(job({ name: 'The Lantern', season: null, episode: null }))).toBe('The Lantern');
 		expect(jobName(job({ kind: 'subtitle_model_download', model: 'Whisper' }))).toBe('Whisper');
 		expect(jobName(job({ kind: 'subtitle_missing' }))).toBe('');
+		expect(fileBaseName('Show/Season 1/Show.S01E01.mkv')).toBe('Show.S01E01.mkv');
+		expect(fileBaseName('')).toBe('');
 	});
 	it('has a word for every kind it follows and a plain one for any other', () => {
-		for (const k of ['subtitle_transcribe', 'subtitle_translate', 'subtitle_search', 'subtitle_missing', 'subtitle_better', 'subtitle_look', 'subtitle_model_download'])
+		for (const k of ['subtitle_transcribe', 'subtitle_translate', 'subtitle_search', 'subtitle_missing', 'subtitle_better', 'subtitle_look', 'subtitle_model_download', 'subtitle_verify'])
 			expect(jobWord(k)).not.toBe(k);
 		expect(jobWord('other_kind')).toBe('other kind');
 	});
@@ -67,6 +74,84 @@ describe('jobs', () => {
 		const o = { ...base, jobs: [job({}), job({ id: 2, state: 'queued' })], running: { subtitle_transcribe: 1 }, queued: { subtitle_transcribe: 1, subtitle_search: 40 } };
 		expect(workingCount(o)).toEqual({ running: 1, queued: 41 });
 		expect(waitingMore(o)).toBe(40);
+	});
+	it('maps known job phase tokens and passes through plain notes', () => {
+		for (const p of ['waiting_slot', 'extracting', 'detecting', 'transcribing', 'preparing', 'translating', 'verifying']) {
+			const word = jobPhaseWord(p);
+			expect(word).not.toBe('');
+			expect(word).not.toBe(p);
+		}
+		expect(jobPhaseWord('Custom step')).toBe('Custom step');
+		expect(jobPhaseWord(undefined)).toBe('');
+		expect(jobPhaseTone('transcribing')).toBe('ok');
+		expect(jobPhaseTone('translating')).toBe('ok');
+		expect(jobPhaseTone('waiting_slot')).toBe('wait');
+		expect(jobPhaseTone('other')).toBe('idle');
+	});
+	it('formats speeds cleanly and ignores zero or negative values', () => {
+		expect(formatSpeed(14.2, 'x')).toBe('14.2x');
+		expect(formatSpeed(18.5, 'lines/s')).toBe('18.5 lines/s');
+		expect(formatSpeed(18, 'lines/s')).toBe('18 lines/s');
+		expect(formatSpeed(124.4, 'x')).toBe('124x');
+		expect(formatSpeed(0, 'x')).toBe('');
+		expect(formatSpeed(-1, 'x')).toBe('');
+		expect(formatSpeed(undefined, 'x')).toBe('');
+	});
+
+	it('formats backlog ETA cleanly and ignores non-positive or non-finite values', () => {
+		expect(formatBacklogEta(0)).toBe('');
+		expect(formatBacklogEta(-12)).toBe('');
+		expect(formatBacklogEta(null)).toBe('');
+		expect(formatBacklogEta(undefined)).toBe('');
+		expect(formatBacklogEta(Number.NaN)).toBe('');
+		expect(formatBacklogEta(45)).toBe('~45s left');
+		expect(formatBacklogEta(600)).toBe('~10m left');
+		expect(formatBacklogEta(3 * 3600 + 120)).toBe('~3h 2m left');
+		expect(formatBacklogEta(3 * 86400)).toBe('~3d 0h left');
+	});
+});
+
+describe('stats and integrity helpers', () => {
+	it('clamps and rounds library percent to 1 decimal', () => {
+		expect(libraryPercent(undefined)).toBe(0);
+		expect(libraryPercent({ wanted: 100, have: 67, missing: 33, percent: 67.34, files_total: 50, files_done: 33, files_missing: 17, unlooked_files: 0 })).toBe(67.3);
+		expect(libraryPercent({ wanted: 10, have: 10, missing: 0, percent: 150, files_total: 10, files_done: 10, files_missing: 0, unlooked_files: 0 })).toBe(100);
+		expect(libraryPercent({ wanted: 10, have: 0, missing: 10, percent: -5, files_total: 10, files_done: 0, files_missing: 10, unlooked_files: 0 })).toBe(0);
+	});
+
+	it('maps integrity issue codes and falls back cleanly', () => {
+		for (const code of ['truncated', 'empty', 'unreadable', 'broken_timing', 'too_few_cues', 'longer_than_video']) {
+			const label = integrityIssueWord(code);
+			expect(label).not.toBe('');
+			expect(label).not.toBe(code);
+		}
+		expect(integrityIssueWord('custom_issue')).toBe('custom issue');
+	});
+
+	it('formats millisecond timestamps as M:SS or H:MM:SS', () => {
+		expect(formatTimestamp(undefined)).toBe('');
+		expect(formatTimestamp(-10)).toBe('');
+		expect(formatTimestamp(0)).toBe('0:00');
+		expect(formatTimestamp(65_000)).toBe('1:05');
+		expect(formatTimestamp(3_661_000)).toBe('1:01:01');
+	});
+
+	it('parses the subtitles tab query parameter', () => {
+		expect(parseSubtitlesTab('waiting')).toBe('waiting');
+		expect(parseSubtitlesTab('history')).toBe('history');
+		expect(parseSubtitlesTab('failed')).toBe('failed');
+		expect(parseSubtitlesTab('integrity')).toBe('integrity');
+		expect(parseSubtitlesTab('settings')).toBe('settings');
+		expect(parseSubtitlesTab('overview')).toBe('overview');
+		expect(parseSubtitlesTab('other')).toBe('overview');
+		expect(parseSubtitlesTab(null)).toBe('overview');
+	});
+
+	it('builds waiting and history queries cleanly', () => {
+		expect(waitingQuery({ q: 'atlas', limit: 50, offset: 0 })).toBe('limit=50&q=atlas');
+		expect(waitingQuery({ kind: 'subtitle_search', limit: 50, offset: 100 })).toBe('limit=50&offset=100&kind=subtitle_search');
+		expect(historyQuery({ state: 'done', q: 'clock', limit: 50, offset: 0 })).toBe('state=done&q=clock&limit=50');
+		expect(historyQuery({ state: 'skipped', limit: 50, offset: 50 })).toBe('state=skipped&limit=50&offset=50');
 	});
 });
 

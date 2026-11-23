@@ -28,7 +28,9 @@ func (a *Handlers) transcribeSubtitle(w http.ResponseWriter, r *http.Request) {
 		webserver.Fail(w, http.StatusConflict, ErrNoTranscriber.Error())
 		return
 	}
-	st, err := a.svc.look(ctx, fc, actorOf(r))
+	actor := actorOf(r)
+	a.svc.UnskipFile(ctx, fc.file.ID, actor)
+	st, err := a.svc.look(ctx, fc, actor)
 	if err != nil {
 		subtitleError(w, err)
 		return

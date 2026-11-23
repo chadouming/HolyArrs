@@ -451,7 +451,7 @@ func (a *Web) DownloadsView(w http.ResponseWriter, r *http.Request) {
 			row.CanAct = manage && row.DownloaderGone
 			row.ClientLocked = true
 		}
-		row.CanImport = manage && ended && row.Phase == "waiting_to_import"
+		row.CanImport = manage && ended && (row.Phase == "waiting_to_import" || row.Phase == "needs_a_decision" && canImportDecisionRow(d, slots))
 		if (d.State == "failed" || d.State == "vanished") && row.SlotState != "" {
 			movedOn := row.SlotState != string(mediafiles.SlotFailed) && row.SlotState != string(mediafiles.SlotNeedsADecision)
 			row.Replaced = movedOn || newest[d.SlotIDs[0]] > d.ID
@@ -719,15 +719,13 @@ func releaseNames(ctx context.Context, db *sql.DB, ids []int64) map[int64]releas
 // slotInfo is what the Downloads screen shows about one Slot: its episode
 // line, and its Title, Version and (for tracks) album.
 type slotInfo struct {
-	line      EpisodeLine
-	titleID   int64
-	title     string
-	year      sql.NullInt64
-	kind      string
-	version   string
-	full      bool // the Slot has its Version (the Title line is shown)
-	album     sql.NullString
-	albumYear sql.NullString
+	line                EpisodeLine
+	titleID             int64
+	title, kind         string
+	version, lastReason string
+	year, activeDL      sql.NullInt64
+	full                bool // the Slot has its Version (the Title line is shown)
+	album, albumYear    sql.NullString
 }
 
 // slotInfos reads many Slots at once.
@@ -736,7 +734,7 @@ func slotInfos(ctx context.Context, db *sql.DB, ids []int64) map[int64]slotInfo 
 	inChunks(ids, func(part []any, marks string) {
 		rs, err := db.QueryContext(ctx, `SELECT s.id, s.state, i.kind, CASE i.kind WHEN 'track' THEN COALESCE(json_extract(i.numbers, '$.disc'), 1) ELSE json_extract(i.numbers, '$.season') END,
 			CASE i.kind WHEN 'track' THEN json_extract(i.numbers, '$.track') ELSE json_extract(i.numbers, '$.episode') END, i.name,
-			t.id, t.name, t.year, t.kind, v.label, p.name, substr(p.release_date, 1, 4)
+			t.id, t.name, t.year, t.kind, v.label, p.name, substr(p.release_date, 1, 4), COALESCE(s.last_reason, ''), s.active_download_id
 			FROM slots s JOIN items i ON i.id = s.item_id JOIN titles t ON t.id = i.title_id
 			LEFT JOIN versions v ON v.id = s.version_id LEFT JOIN parts p ON p.id = i.part_id WHERE s.id IN (`+marks+`)`, part...)
 		if err != nil {
@@ -748,7 +746,7 @@ func slotInfos(ctx context.Context, db *sql.DB, ids []int64) map[int64]slotInfo 
 			var season, episode sql.NullInt64
 			var name, version sql.NullString
 			var kind string
-			if rs.Scan(&si.line.SlotID, &si.line.State, &kind, &season, &episode, &name, &si.titleID, &si.title, &si.year, &si.kind, &version, &si.album, &si.albumYear) != nil {
+			if rs.Scan(&si.line.SlotID, &si.line.State, &kind, &season, &episode, &name, &si.titleID, &si.title, &si.year, &si.kind, &version, &si.album, &si.albumYear, &si.lastReason, &si.activeDL) != nil {
 				continue
 			}
 			si.line.Season, si.line.Episode, si.line.Name = int(season.Int64), int(episode.Int64), name.String

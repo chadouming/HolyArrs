@@ -33,7 +33,7 @@ describe('static files', () => {
 
 	it('names a file that is neither ours nor listed, and every font', async () => {
 		const { unlisted } = await import('../../../bundled-packages.ts');
-		expect(unlisted(['brand/mark.svg', 'favicon.ico', 'vendor/hls-1.7.3.min.js', 'clients/deluge.svg'], parts)).toEqual([]);
+		expect(unlisted(['brand/mark.svg', 'favicon.ico', 'vendor/hls-1.7.4.min.js', 'clients/deluge.svg'], parts)).toEqual([]);
 		expect(unlisted(['clients/plex.svg', 'brand/display.woff2', 'fonts/x.ttf', 'favicon.ico.bak'], parts)).toEqual(['clients/plex.svg', 'brand/display.woff2', 'fonts/x.ttf', 'favicon.ico.bak']);
 	});
 });

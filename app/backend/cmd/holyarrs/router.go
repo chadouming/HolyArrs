@@ -34,6 +34,7 @@ import (
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/sources"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles"
+	"github.com/HolyArrs/holyarrs/app/backend/internal/transcode"
 )
 
 // byHandRoutes registers the import-by-hand routes (internal/importer).
@@ -91,6 +92,7 @@ func (a *handlers) Routes(rt *webserver.Router) {
 	a.shows.Routes(m)
 	a.mh().RouteMux(m)
 	subtitles.NewHandlers(a.s.Store, a.s.Secrets, a.s.Subtitles).Routes(m)
+	transcode.NewHandlers(a.s.Store, a.s.Transcode).Routes(m)
 	a.appHandlers().Routes(m)
 	(&updates.Handlers{Checker: a.s.Updates, ImageVersion: version}).Routes(m)
 	(&datapack.Handlers{Deps: datapack.Deps{Store: a.s.Store}}).Routes(m)

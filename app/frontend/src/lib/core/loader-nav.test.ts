@@ -37,6 +37,19 @@ describe('a page change that a page cancels', () => {
 		await vi.advanceTimersByTimeAsync(NAV_DELAY_MS + 400);
 		expect(node.hidden).toBe(true);
 	});
+	it('takes the veil away if complete resolves without afterNavigate', async () => {
+		const node = fakeLoader();
+		vi.useFakeTimers();
+		const { navWatch, NAV_DELAY_MS } = await import('./loader.ts');
+		let finish: () => void = () => {};
+		const complete = new Promise<void>((yes) => (finish = yes));
+		navWatch(complete);
+		vi.advanceTimersByTime(NAV_DELAY_MS + 50);
+		expect(node.hidden).toBe(false);
+		finish();
+		await vi.advanceTimersByTimeAsync(400);
+		expect(node.hidden).toBe(true);
+	});
 });
 
 describe('a page change replaced by a newer one', () => {

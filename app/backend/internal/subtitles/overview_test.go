@@ -3,11 +3,15 @@ package subtitles
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
+	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/container"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate/faketranslator"
 )
@@ -122,6 +126,13 @@ func TestRoutes_Overview(t *testing.T) {
 	if o.Missing != 3 || o.Files != 3 || o.NeedSpeech != 2 || o.CanTranslate != 1 || o.SpeechHeld != 1 {
 		t.Fatalf("counts %+v", o)
 	}
+	if o.Library.Wanted < o.Library.Missing || o.Library.FilesTotal < o.Library.FilesMissing {
+		t.Fatalf("library floor violated: %+v", o.Library)
+	}
+	if o.Stats.Speech.Unit != "x" || o.Stats.Speech.Samples != 0 || o.Stats.Speech.AvgSpeed != 0 || o.Stats.Speech.LiveSpeed != 0 ||
+		o.Stats.Translate.Unit != "lines/s" || o.Stats.Translate.Samples != 0 || o.Stats.Translate.AvgSpeed != 0 || o.Stats.Translate.LiveSpeed != 0 {
+		t.Fatalf("empty stats defaults = %+v", o.Stats)
+	}
 	if len(o.Jobs) != 2 || o.Jobs[0].Kind != KindTranscribe || o.Jobs[0].State != "running" || o.Jobs[0].Progress != 0.4 || o.Jobs[0].Name != "The Lantern" || o.Jobs[0].TitleID != f.movie {
 		t.Fatalf("jobs %+v", o.Jobs)
 	}
@@ -143,5 +154,171 @@ func TestRoutes_Overview(t *testing.T) {
 	}
 	if code, body := call(m, "GET", "/api/v1/subtitles/missing?need=nonsense", ""); code != 200 || !strings.Contains(body, `"total":3`) {
 		t.Fatalf("a need that is not known: %d %s", code, body)
+	}
+}
+
+// Overview computes library coverage, speech/translate speeds (historical +
+// live), failed/cancelled counts, and the integrity summary.
+func TestOverview_LibraryStatsFailedAndIntegrity(t *testing.T) {
+	f := newFix(t)
+	s, _ := withTranslator(t, f, &faketranslator.OpenAI{})
+	ctx := context.Background()
+
+	// Configure default wishes for English and French.
+	set := ReadSettings(ctx, f.st.Read())
+	set.Languages = []Want{{Language: "en"}, {Language: "fr"}}
+	if err := SaveSettings(ctx, f.st, set, domain.System); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write beside subtitle files for movie (en only) and ep1 (en + fr), plus one on ep2 (unlooked).
+	writeSub := func(videoRel, suffix string) {
+		t.Helper()
+		base := strings.TrimSuffix(videoRel, filepath.Ext(videoRel))
+		p := filepath.Join(f.lib, filepath.FromSlash(base+suffix))
+		if err := os.WriteFile(p, []byte("1\n00:00:01,000 --> 00:00:02,000\nhello\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeSub("The Lantern (2010)/The Lantern (2010) 1080p BluRay.mkv", ".en.srt")
+	writeSub("Quiet Harbour (2019)/Season 01/Quiet Harbour - S01E02.mkv", ".en.srt")
+	writeSub("Quiet Harbour (2019)/Season 01/Quiet Harbour - S01E02.mkv", ".fr.srt")
+
+	if _, err := s.Look(ctx, f.movieFile, domain.System); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Look(ctx, f.ep1File, domain.System); err != nil {
+		t.Fatal(err)
+	}
+	// ep2 remains unlooked, with one unchecked beside row.
+	subRow(t, f, f.ep2File, "en", "beside", "present", "", "Quiet Harbour (2019)/Season 01/Quiet Harbour - S01E03.en.srt")
+
+	// Set integrity states on the three looked beside rows.
+	ts := database.FormatTime(now())
+	var liveTranscribeID, liveTranslateID int64
+	err := f.st.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE subtitles SET integrity_state = 'ok', integrity_checked_at = ? WHERE file_id = ? AND place = 'beside' AND language = 'en'`, ts, f.movieFile); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE subtitles SET integrity_state = 'bad', integrity_issue = 'truncated', integrity_checked_at = ? WHERE file_id = ? AND place = 'beside' AND language = 'en'`, ts, f.ep1File); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE subtitles SET integrity_state = 'accepted', integrity_checked_at = ? WHERE file_id = ? AND place = 'beside' AND language = 'fr'`, ts, f.ep1File); err != nil {
+			return err
+		}
+
+		insJob := func(kind, state, resJSON string) int64 {
+			var resArg any
+			if resJSON != "" {
+				resArg = resJSON
+			}
+			r, err := tx.Exec(`INSERT INTO jobs (created_at, created_by, updated_at, updated_by, kind, params, state, result, run_after, ended_at, asked_by)
+				VALUES (?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)`, ts, sysActor, ts, sysActor, kind, state, resArg, ts, ts, sysActor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, _ := r.LastInsertId()
+			return id
+		}
+		// Historical completed jobs with result payloads.
+		insJob(KindTranscribe, "done", `{"audio_seconds":120,"elapsed_seconds":30,"lines":45}`)
+		insJob(KindTranscribe, "done", `{"audio_seconds":60,"elapsed_seconds":10,"lines":15}`)
+		insJob(KindTranslate, "done", `{"translated":100,"elapsed_seconds":20}`)
+		// Live running jobs for live speed totals.
+		liveTranscribeID = insJob(KindTranscribe, "running", "")
+		liveTranslateID = insJob(KindTranslate, "running", "")
+		// Failed and cancelled subtitle jobs, plus one non-subtitle failed job.
+		insJob(KindSearch, "failed", "")
+		insJob(KindTranscribe, "failed", "")
+		insJob(KindTranslate, "cancelled", "")
+		insJob("library_scan", "failed", "")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.setLiveStat(liveTranscribeID, KindTranscribe, 2.0, "x")
+	s.setLiveStat(liveTranslateID, KindTranslate, 3.0, "lines/s")
+
+	o, err := s.Overview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Library.Wanted != 4 || o.Library.Have != 3 || o.Library.Missing != 1 || o.Library.Percent != 75.0 ||
+		o.Library.FilesTotal != 3 || o.Library.FilesDone != 1 || o.Library.FilesMissing != 1 || o.Library.UnlookedFiles != 1 {
+		t.Fatalf("library progress = %+v", o.Library)
+	}
+	if o.Stats.Speech.AvgSpeed != 4.5 || o.Stats.Speech.LiveSpeed != 2.0 || o.Stats.Speech.Unit != "x" ||
+		o.Stats.Speech.Samples != 2 || o.Stats.Speech.TotalLines != 60 || o.Stats.Speech.TotalAudioSeconds != 180.0 {
+		t.Fatalf("speech stats = %+v", o.Stats.Speech)
+	}
+	if o.Stats.Translate.AvgSpeed != 5.0 || o.Stats.Translate.LiveSpeed != 3.0 || o.Stats.Translate.Unit != "lines/s" ||
+		o.Stats.Translate.Samples != 1 || o.Stats.Translate.TotalLines != 100 {
+		t.Fatalf("translate stats = %+v", o.Stats.Translate)
+	}
+	if o.FailedCount != 2 || o.CancelledCount != 1 {
+		t.Fatalf("failed=%d cancelled=%d", o.FailedCount, o.CancelledCount)
+	}
+	if o.Integrity.OK != 1 || o.Integrity.Bad != 1 || o.Integrity.Accepted != 1 || o.Integrity.Unchecked != 1 || o.Integrity.LastCheckedAt == nil {
+		t.Fatalf("integrity = %+v", o.Integrity)
+	}
+
+	m := http.NewServeMux()
+	NewHandlers(f.st, s.Vault, s).Routes(m)
+	code, body := call(m, "GET", "/api/v1/subtitles/overview", "")
+	if code != http.StatusOK {
+		t.Fatalf("GET overview: %d %s", code, body)
+	}
+	var got Overview
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("unmarshal overview: %v", err)
+	}
+	if got.Library.Percent != 75.0 || got.FailedCount != 2 || got.CancelledCount != 1 || got.Integrity.Bad != 1 ||
+		got.Stats.Speech.AvgSpeed != 4.5 || got.Stats.Speech.LiveSpeed != 2.0 || got.Stats.Speech.Samples != 2 ||
+		got.Stats.Speech.TotalLines != 60 || got.Stats.Speech.TotalAudioSeconds != 180.0 ||
+		got.Stats.Translate.AvgSpeed != 5.0 || got.Stats.Translate.LiveSpeed != 3.0 || got.Stats.Translate.Samples != 1 ||
+		got.Stats.Translate.TotalLines != 100 {
+		t.Fatalf("decoded overview mismatch: %+v", got)
+	}
+}
+
+// Concurrent running jobs sum their speeds into LiveSpeed while AvgSpeed stays the historical average.
+func TestOverview_LiveSpeedSumsConcurrentJobs(t *testing.T) {
+	f := newFix(t)
+	s, _ := withTranslator(t, f, &faketranslator.OpenAI{})
+	ctx := context.Background()
+
+	ts := database.FormatTime(now())
+	if err := f.st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`INSERT INTO jobs (created_at, created_by, updated_at, updated_by, kind, params, state, result, run_after, ended_at, asked_by)
+			VALUES (?, ?, ?, ?, ?, '{}', 'done', '{"audio_seconds":60,"elapsed_seconds":10,"lines":20}', ?, ?, ?)`,
+			ts, sysActor, ts, sysActor, KindTranscribe, ts, ts, sysActor)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for id := int64(1); id <= 4; id++ {
+		s.setLiveStat(id, KindTranscribe, 16.0, "x")
+	}
+	o, err := s.Overview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Stats.Speech.LiveSpeed != 64.0 || o.Stats.Speech.AvgSpeed != 6.0 {
+		t.Fatalf("4x16.0 live speed = %+v", o.Stats.Speech)
+	}
+
+	for id := int64(1); id <= 4; id++ {
+		s.clearLiveStat(id)
+	}
+	s.setLiveStat(10, KindTranscribe, 15.5, "x")
+	s.setLiveStat(11, KindTranscribe, 16.5, "x")
+	o, err = s.Overview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Stats.Speech.LiveSpeed != 32.0 || o.Stats.Speech.AvgSpeed != 6.0 {
+		t.Fatalf("15.5+16.5 live speed = %+v", o.Stats.Speech)
 	}
 }

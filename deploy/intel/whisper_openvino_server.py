@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 from array import array
-from collections.abc import MutableMapping
+from collections.abc import Mapping
+from contextlib import nullcontext
 from email.message import Message
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +13,7 @@ import io
 import json
 import math
 import os
+from pathlib import Path
 import re
 import signal
 import sys
@@ -19,30 +21,28 @@ import threading
 from typing import Any, Callable, Sequence
 import wave
 
-_THREAD_ENV_VARS = (
-    "OMP_NUM_THREADS",
-    "OPENBLAS_NUM_THREADS",
-    "MKL_NUM_THREADS",
-    "VECLIB_MAXIMUM_THREADS",
-    "NUMEXPR_NUM_THREADS",
-    "TBB_NUM_THREADS",
-    "OV_CPU_THREADS_NUM",
+_SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+
+from openvino_common import (  # noqa: E402
+    _THREAD_ENV_VARS,
+    _configure_thread_env,
+    _default_thread_cap,
+    _file_lock,
+    _is_cache_fs_error,
+    _is_discrete_device_type,
+    _is_unsupported_prop_error,
+    _order_devices_by_type,
+    _read_exact,
+    get_cache_dir,
+    log_err,
+    parse_bool_env,
+    query_available_devices,
+    query_device_types,
+    read_http_body,
+    select_device,
 )
-
-
-def _default_thread_cap(threads: int) -> int:
-    """Return the thread limit, defaulting to a small cap on high-core hosts."""
-    return threads if threads > 0 else max(1, min(4, os.cpu_count() or 2))
-
-
-def _configure_thread_env(threads: int, env: MutableMapping[str, str] | None = None) -> int:
-    """Cap OpenVINO, oneTBB, and BLAS thread pools without overriding user env vars."""
-    cap = _default_thread_cap(threads)
-    target = os.environ if env is None else env
-    cap_str = str(cap)
-    for var in _THREAD_ENV_VARS:
-        target.setdefault(var, cap_str)
-    return cap
 
 
 if __name__ == "__main__":
@@ -70,6 +70,7 @@ VAD_MIN_SILENCE_MS = 400
 VAD_MIN_SPEECH_MS = 200
 VAD_MAX_SPAN_SEC = 25.0
 VAD_MIN_SPLIT_SEC = 15.0
+VAD_PACK_GAP_SEC = 3.0
 
 DEFAULT_SILERO_ONNX = "/opt/whisper/silero_vad.onnx"
 SILERO_WINDOW_SAMPLES = 512
@@ -110,35 +111,36 @@ _LANG_NAMES = {
 }
 
 
-def log_err(message: str) -> None:
-    """Write one flushed line to stderr for HolyArrs log capture."""
-    sys.stderr.write(message.rstrip("\n") + "\n")
-    sys.stderr.flush()
-
-
-def map_model_variant(model_path: str) -> tuple[str, str]:
+def map_model_variant(
+    model_path: str,
+    ov_device: str = "",
+    env: Mapping[str, str] | None = None,
+) -> tuple[str, str]:
     """Map a GGML Whisper model path to its OpenVINO IR repository and folder."""
+    src = os.environ if env is None else env
     name = os.path.basename(model_path or "").lower()
     if "q5_0" in name or "int4" in name:
         return "OpenVINO/whisper-large-v3-turbo-int4-ov", "ov-whisper-large-v3-turbo-int4"
-    if "q8_0" in name or "int8" in name:
+    if "int8" in name:
+        return "OpenVINO/whisper-large-v3-turbo-int8-ov", "ov-whisper-large-v3-turbo-int8"
+    if "q8_0" in name:
+        prefer_fp16 = src.get("HOLYARRS_OV_PREFER_FP16", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if (ov_device or "").upper().startswith("GPU") and prefer_fp16:
+            return "OpenVINO/whisper-large-v3-turbo-fp16-ov", "ov-whisper-large-v3-turbo-fp16"
         return "OpenVINO/whisper-large-v3-turbo-int8-ov", "ov-whisper-large-v3-turbo-int8"
     return "OpenVINO/whisper-large-v3-turbo-fp16-ov", "ov-whisper-large-v3-turbo-fp16"
 
 
-def get_cache_dir(env: dict[str, str] | None = None) -> str:
-    """Return and create the persistent OpenVINO compiled blob cache folder."""
-    src = os.environ if env is None else env
-    xdg = src.get("XDG_CACHE_HOME", "").strip() or "/tmp"
-    cache_dir = os.path.join(xdg, "openvino")
-    os.makedirs(cache_dir, exist_ok=True)
-    return cache_dir
-
-
 def resolve_ir_dir(
     model_path: str,
-    env: dict[str, str] | None = None,
+    env: Mapping[str, str] | None = None,
     downloader: Callable[..., Any] | None = None,
+    ov_device: str = "",
 ) -> str:
     """Resolve or download the OpenVINO IR directory for the requested model."""
     src = os.environ if env is None else env
@@ -149,65 +151,22 @@ def resolve_ir_dir(
             raise FileNotFoundError(f"OpenVINO model not found in HOLYARRS_OV_MODEL_DIR: {override}")
         return override
 
-    repo_id, variant_dir = map_model_variant(model_path)
+    repo_id, variant_dir = map_model_variant(model_path, ov_device=ov_device, env=src)
     base_dir = os.path.dirname(os.path.abspath(model_path)) if model_path else "/config/models"
     ir_dir = os.path.join(base_dir, "openvino", variant_dir)
     encoder_xml = os.path.join(ir_dir, "openvino_encoder_model.xml")
     if not os.path.isfile(encoder_xml):
         os.makedirs(ir_dir, exist_ok=True)
-        if downloader is None:
-            from huggingface_hub import snapshot_download
+        lock_path = os.path.join(base_dir, "openvino", ".download.lock")
+        with _file_lock(lock_path):
+            if not os.path.isfile(encoder_xml):
+                if downloader is None:
+                    from huggingface_hub import snapshot_download
 
-            downloader = snapshot_download
-        log_err(f"whisper_openvino: downloading {repo_id} to {ir_dir}")
-        downloader(repo_id=repo_id, local_dir=ir_dir)
+                    downloader = snapshot_download
+                log_err(f"whisper_openvino: downloading {repo_id} to {ir_dir}")
+                downloader(repo_id=repo_id, local_dir=ir_dir)
     return ir_dir
-
-
-def select_device(
-    device_index: int | None,
-    no_gpu: bool = False,
-    available_devices: Sequence[str] | None = None,
-) -> str:
-    """Choose the OpenVINO target device matching HolyArrs -dev / -ng flags."""
-    if no_gpu or (device_index is not None and device_index < 0):
-        return "CPU"
-    idx = 0 if device_index is None else device_index
-    if available_devices is not None:
-        devs = list(available_devices)
-        indexed = f"GPU.{idx}"
-        if indexed in devs:
-            return indexed
-        if idx == 0 and "GPU" in devs:
-            return "GPU"
-        gpu_devs = [d for d in devs if d == "GPU" or d.startswith("GPU.")]
-        if idx == 0 and len(gpu_devs) == 1:
-            return gpu_devs[0]
-    return "GPU" if idx == 0 else f"GPU.{idx}"
-
-
-def query_available_devices() -> list[str] | None:
-    """Query OpenVINO Core available devices, returning None if unavailable."""
-    try:
-        import openvino as ov
-
-        return list(ov.Core().available_devices)
-    except Exception:
-        return None
-
-
-def _is_unsupported_prop_error(exc: Exception, extra_keys: Sequence[str]) -> bool:
-    if isinstance(exc, TypeError):
-        return True
-    if isinstance(exc, RuntimeError):
-        msg = str(exc).lower()
-        if any(
-            tok in msg
-            for tok in ("property", "unsupported", "not supported", "unknown", "invalid config")
-        ):
-            return True
-        return any(k.lower() in msg for k in extra_keys)
-    return False
 
 
 def create_pipeline(
@@ -226,8 +185,16 @@ def create_pipeline(
 
     src = os.environ if env is None else env
     cap = _default_thread_cap(threads)
+    enable_word_ts = src.get("HOLYARRS_OV_WORD_TIMESTAMPS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
-    def _call_with_word_ts(dev: str, props: dict[str, Any]) -> Any:
+    def _call_pipeline(dev: str, props: dict[str, Any]) -> Any:
+        if not enable_word_ts:
+            return pipeline_cls(ir_dir, dev, **props)
         try:
             return pipeline_cls(ir_dir, dev, word_timestamps=True, **props)
         except TypeError:
@@ -237,45 +204,78 @@ def create_pipeline(
                 return pipeline_cls(ir_dir, dev, **props)
             raise
 
-    def _build(dev: str) -> Any:
+    def _build(dev: str, use_cache: bool = True) -> Any:
         if dev.startswith("GPU"):
-            prop_candidates = [
-                {
-                    "CACHE_DIR": cache_dir,
-                    "COMPILATION_NUM_THREADS": cap,
-                    "PERFORMANCE_HINT": "LATENCY",
-                    "NUM_STREAMS": 1,
-                },
-                {"CACHE_DIR": cache_dir},
-            ]
+            base_props: dict[str, Any] = {
+                "COMPILATION_NUM_THREADS": cap,
+                "PERFORMANCE_HINT": "LATENCY",
+                "NUM_STREAMS": "1",
+            }
+            if use_cache and cache_dir:
+                prop_candidates = [
+                    {"CACHE_DIR": cache_dir, **base_props},
+                    {"CACHE_DIR": cache_dir},
+                ]
+            else:
+                prop_candidates = [base_props, {}]
         else:
-            prop_candidates = [
-                {
-                    "CACHE_DIR": cache_dir,
-                    "INFERENCE_NUM_THREADS": cap,
-                    "PERFORMANCE_HINT": "LATENCY",
-                    "NUM_STREAMS": 1,
-                },
-                {"CACHE_DIR": cache_dir, "INFERENCE_NUM_THREADS": cap},
-                {"CACHE_DIR": cache_dir},
-            ]
+            base_props = {
+                "INFERENCE_NUM_THREADS": cap,
+                "PERFORMANCE_HINT": "LATENCY",
+                "NUM_STREAMS": "1",
+            }
+            if use_cache and cache_dir:
+                prop_candidates = [
+                    {"CACHE_DIR": cache_dir, **base_props},
+                    {"CACHE_DIR": cache_dir, "INFERENCE_NUM_THREADS": cap},
+                    {"CACHE_DIR": cache_dir},
+                ]
+            else:
+                prop_candidates = [
+                    base_props,
+                    {"INFERENCE_NUM_THREADS": cap},
+                    {},
+                ]
 
         for idx, props in enumerate(prop_candidates):
             try:
-                return _call_with_word_ts(dev, props)
+                return _call_pipeline(dev, props)
             except (TypeError, RuntimeError) as exc:
+                if _is_cache_fs_error(exc):
+                    raise
                 extra_keys = [k for k in props if k != "CACHE_DIR"]
                 if idx < len(prop_candidates) - 1 and _is_unsupported_prop_error(exc, extra_keys):
                     continue
                 raise
 
+    def _build_with_cache(dev: str) -> Any:
+        if not cache_dir:
+            return _build(dev, use_cache=False)
+        lock_ctx = (
+            _file_lock(os.path.join(cache_dir, ".compile.lock"))
+            if os.path.isdir(cache_dir)
+            else nullcontext()
+        )
+        try:
+            with lock_ctx:
+                return _build(dev, use_cache=True)
+        except Exception as exc:
+            if not _is_cache_fs_error(exc):
+                raise
+            first_line = next(
+                (line.strip() for line in str(exc).splitlines() if line.strip()),
+                type(exc).__name__,
+            )
+            log_err(f"whisper_openvino: cache error ({first_line}), retrying without cache")
+            return _build(dev, use_cache=False)
+
     try:
-        return _build(ov_device)
+        return _build_with_cache(ov_device)
     except Exception as exc:
         fallback = src.get("HOLYARRS_OV_FALLBACK_CPU", "").strip().lower() in ("1", "true", "yes", "on")
         if ov_device.startswith("GPU") and fallback:
             log_err(f"whisper_openvino: GPU init failed ({exc}), falling back to CPU")
-            return _build("CPU")
+            return _build_with_cache("CPU")
         raise
 
 
@@ -293,51 +293,6 @@ def parse_content_type_boundary(content_type: str) -> bytes | None:
     if isinstance(boundary, tuple):
         boundary = boundary[2]
     return str(boundary).encode("latin-1")
-
-
-def _read_exact(rfile: Any, length: int) -> bytes:
-    """Read up to length bytes cleanly from a stream."""
-    chunks: list[bytes] = []
-    remaining = length
-    while remaining > 0:
-        chunk = rfile.read(remaining)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
-
-
-def read_http_body(headers: Any, rfile: Any) -> bytes:
-    """Read an HTTP request body supporting both Content-Length and chunked transfer."""
-    transfer_encoding = str(headers.get("Transfer-Encoding", "")).lower()
-    if "chunked" in transfer_encoding:
-        parts: list[bytes] = []
-        while True:
-            size_line = rfile.readline()
-            if not size_line:
-                break
-            size_token = size_line.split(b";", 1)[0].strip()
-            if not size_token:
-                continue
-            chunk_size = int(size_token, 16)
-            if chunk_size == 0:
-                while True:
-                    trailer = rfile.readline()
-                    if not trailer or trailer in (b"\r\n", b"\n"):
-                        break
-                break
-            parts.append(_read_exact(rfile, chunk_size))
-            rfile.readline()
-        return b"".join(parts)
-
-    raw_len = headers.get("Content-Length")
-    if raw_len is not None:
-        length = int(raw_len)
-        if length < 0:
-            raise ValueError("negative Content-Length")
-        return _read_exact(rfile, length)
-    return rfile.read()
 
 
 def parse_multipart(content_type: str, body: bytes) -> tuple[dict[str, str], dict[str, bytes]]:
@@ -496,6 +451,28 @@ def _percentile(sorted_vals: list[float], pct: float) -> float:
     return sorted_vals[lo] * (1.0 - frac) + sorted_vals[hi] * frac
 
 
+def _pack_regions(
+    regions: list[tuple[int, int]],
+    step_sec: float,
+    max_span_sec: float,
+    max_gap_sec: float,
+) -> list[tuple[int, int]]:
+    """Greedily merge adjacent speech regions when gap and merged duration stay within bounds."""
+    if not regions or max_gap_sec < 0:
+        return list(regions)
+    packed: list[tuple[int, int]] = [regions[0]]
+    for next_start, next_end in regions[1:]:
+        cur_start, cur_end = packed[-1]
+        if (
+            (next_start - cur_end) * step_sec <= max_gap_sec
+            and (next_end - cur_start) * step_sec <= max_span_sec
+        ):
+            packed[-1] = (cur_start, max(cur_end, next_end))
+        else:
+            packed.append((next_start, next_end))
+    return packed
+
+
 def _split_long_span(
     audio: Any,
     rms: list[float],
@@ -547,6 +524,7 @@ def segment_audio_vad(
     min_silence_ms: int = VAD_MIN_SILENCE_MS,
     min_speech_ms: int = VAD_MIN_SPEECH_MS,
     max_span_sec: float = VAD_MAX_SPAN_SEC,
+    max_pack_gap_sec: float = VAD_PACK_GAP_SEC,
 ) -> list[tuple[float, float, Any]]:
     """Split audio into speech spans with exact original start/end seconds."""
     total_samples = len(audio)
@@ -618,6 +596,8 @@ def segment_audio_vad(
             else:
                 regions.append((padded_start, padded_end))
         idx = end
+
+    regions = _pack_regions(regions, frame_len / sample_rate, max_span, max_pack_gap_sec)
 
     spans: list[tuple[float, float, Any]] = []
     for f_start, f_end in regions:
@@ -696,19 +676,59 @@ def _bind_key(port: Any, fallback_name: str) -> Any:
     return fallback_name
 
 
+def _load_silero_onnx_static(onnx_path: str) -> Any | None:
+    """Load Silero VAD ONNX via FrontEndManager with static shapes so OpenVINO can fold dynamic ops."""
+    if not isinstance(onnx_path, str) or not onnx_path.lower().endswith(".onnx"):
+        return None
+    try:
+        import openvino as ov
+        from openvino.frontend import FrontEndManager
+
+        fem = FrontEndManager()
+        fe = fem.load_by_framework("onnx")
+        im = fe.load(onnx_path)
+        specs = (
+            ("input", [1, SILERO_CONTEXT_SAMPLES + SILERO_WINDOW_SAMPLES], ov.Type.f32),
+            ("state", [2, 1, 128], ov.Type.f32),
+            ("sr", [], ov.Type.i64),
+        )
+        for tensor_name, dims, elem_type in specs:
+            place = im.get_place_by_tensor_name(tensor_name)
+            if place is not None:
+                im.set_partial_shape(place, ov.PartialShape(dims))
+                im.set_element_type(place, elem_type)
+        return fe.convert(im)
+    except Exception:
+        return None
+
+
 class SileroVADOvino:
     """Silero VAD v5/v6 ONNX runner compiled on OpenVINO CPU."""
 
-    def __init__(self, onnx_path: str, threads: int = 0, core: Any = None) -> None:
+    def __init__(
+        self,
+        onnx_path: Any,
+        threads: int = 0,
+        core: Any = None,
+        frontend_loader: Callable[[str], Any] | None = None,
+    ) -> None:
         if np is None:
             raise RuntimeError("numpy is required for Silero VAD")
+        use_static_frontend = core is None or frontend_loader is not None
         if core is None:
             import openvino as ov
 
             core = ov.Core()
 
+        model_src: Any = onnx_path
+        if use_static_frontend and isinstance(onnx_path, str):
+            loader = frontend_loader or _load_silero_onnx_static
+            loaded = loader(onnx_path)
+            if loaded is not None:
+                model_src = loaded
+
         compile_configs: tuple[dict[str, Any] | None, ...] = (
-            {"INFERENCE_NUM_THREADS": 1, "NUM_STREAMS": 1, "PERFORMANCE_HINT": "LATENCY"},
+            {"INFERENCE_NUM_THREADS": 1, "NUM_STREAMS": "1", "PERFORMANCE_HINT": "LATENCY"},
             {"INFERENCE_NUM_THREADS": 1},
             None,
         )
@@ -716,9 +736,9 @@ class SileroVADOvino:
         for idx, cfg in enumerate(compile_configs):
             try:
                 if cfg is not None:
-                    compiled = core.compile_model(onnx_path, "CPU", cfg)
+                    compiled = core.compile_model(model_src, "CPU", cfg)
                 else:
-                    compiled = core.compile_model(onnx_path, "CPU")
+                    compiled = core.compile_model(model_src, "CPU")
                 break
             except (TypeError, RuntimeError):
                 if idx == len(compile_configs) - 1:
@@ -893,6 +913,7 @@ def segment_audio_silero(
     min_silence_ms: int = 400,
     pad_ms: int = 250,
     max_span_sec: float = VAD_MAX_SPAN_SEC,
+    max_pack_gap_sec: float = VAD_PACK_GAP_SEC,
 ) -> list[tuple[float, float, Any]]:
     """Split audio into speech spans using Silero VAD probabilities."""
     total_samples = len(audio)
@@ -948,6 +969,8 @@ def segment_audio_silero(
                 regions.append((padded_start, padded_end))
         idx = end
 
+    regions = _pack_regions(regions, win_len / sample_rate, max_span, max_pack_gap_sec)
+
     prob_list = list(probs)
     spans: list[tuple[float, float, Any]] = []
     for f_start, f_end in regions:
@@ -997,7 +1020,11 @@ def load_silero_vad(
             log_err(f"whisper_openvino: loaded Silero VAD from {path} on CPU")
             return model
         except Exception as exc:
-            log_err(f"whisper_openvino: failed to load Silero VAD ({path}): {exc}")
+            first_line = next(
+                (line.strip() for line in str(exc).splitlines() if line.strip()),
+                type(exc).__name__,
+            )
+            log_err(f"whisper_openvino: failed to load Silero VAD ({path}): {first_line}")
     return None
 
 
@@ -1086,14 +1113,17 @@ def _format_word(
 
 _WORD_TOKEN_RE = re.compile(r"[^\W_]+", flags=re.UNICODE)
 _OPTIONAL_GENERATE_KWARGS = (
-    "max_new_tokens",
     "compression_ratio_threshold",
     "no_speech_threshold",
     "logprob_threshold",
+    "max_new_tokens",
     "initial_prompt",
     "return_timestamps",
     "language",
     "task",
+    "temperature",
+    "do_sample",
+    "num_beams",
 )
 _MIN_PROMPT_SPAN_SEC = 1.5
 
@@ -1345,6 +1375,9 @@ class WhisperService:
             vad_enabled = fields.get("vad", "true").strip().lower() != "false"
             lang = normalize_language(fields.get("language"))
             prompt = fields.get("prompt", "").strip()
+            beam_size = fields.get("beam_size", "").strip()
+            temperature_inc = fields.get("temperature_inc", "").strip()
+            fast_mode = beam_size == "1" or temperature_inc in ("0", "0.0")
 
             spans = self._segment_audio(audio, vad_enabled=vad_enabled, threshold=threshold)
             if not spans:
@@ -1365,6 +1398,9 @@ class WhisperService:
                     "no_speech_threshold": 0.6,
                     "logprob_threshold": -1.0,
                 }
+                if fast_mode:
+                    gen_opts["do_sample"] = False
+                    gen_opts["num_beams"] = 1
                 if ov_lang:
                     gen_opts["language"] = ov_lang
                 if prompt and (orig_end - orig_start) >= _MIN_PROMPT_SPAN_SEC:
@@ -1396,12 +1432,15 @@ def make_handler(service: WhisperService) -> type[BaseHTTPRequestHandler]:
 
         def _send_json(self, status: int, payload: dict[str, Any]) -> None:
             raw = json.dumps(payload).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(raw)))
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.wfile.write(raw)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(raw)
+            except (BrokenPipeError, ConnectionResetError):
+                return
 
         def do_GET(self) -> None:
             if self.path.split("?", 1)[0] == "/health":
@@ -1486,9 +1525,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     def _load_model() -> None:
         try:
-            ir_dir = resolve_ir_dir(args.model)
             avail = query_available_devices()
-            ov_device = select_device(args.device, no_gpu=args.no_gpu, available_devices=avail)
+            dev_types = query_device_types(avail)
+            ov_device = select_device(
+                args.device,
+                no_gpu=args.no_gpu,
+                available_devices=avail,
+                device_types=dev_types,
+            )
+            ir_dir = resolve_ir_dir(args.model, ov_device=ov_device)
             cache_dir = get_cache_dir()
             log_err(f"whisper_openvino: loading {ir_dir} on {ov_device} (cache {cache_dir})")
             pipe = create_pipeline(ir_dir, ov_device, cache_dir, threads=args.threads)

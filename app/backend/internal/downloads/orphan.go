@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -152,7 +153,7 @@ func wakeSlots(ctx context.Context, tx *sql.Tx, d domain.Download, by domain.Act
 			}
 			n++
 		case mediafiles.SlotNeedsADecision:
-			if !retry || sl.LastReason == nil || !importer.CanImportAgain(*sl.LastReason) {
+			if !retry || sl.LastReason == nil || !canRetryImportReason(*sl.LastReason) {
 				continue
 			}
 			if err := mediafiles.MoveSlotTx(tx, sid, mediafiles.SlotImporting, *sl.LastReason, by); err != nil {
@@ -253,7 +254,7 @@ func (m *Manager) waitsForImport(ctx context.Context, id int64) error {
 		case mediafiles.SlotDownloading, mediafiles.SlotStalled:
 			return nil
 		case mediafiles.SlotNeedsADecision:
-			if sl.LastReason != nil && importer.CanImportAgain(*sl.LastReason) {
+			if sl.LastReason != nil && canRetryImportReason(*sl.LastReason) {
 				return nil
 			}
 		}
@@ -426,4 +427,28 @@ func (m *Manager) downloaderGone(ctx context.Context, id int64) (domain.Download
 		return dr, true, nil
 	}
 	return dr, err == nil && dr.Removed, err
+}
+
+// canRetryImportReason reports whether a Needs a decision reason allows
+// Import again: folder/access/pass-through faults plus import conflicts and
+// refusals, excluding edition refusals.
+func canRetryImportReason(reason string) bool {
+	if importer.CanImportAgain(reason) {
+		return true
+	}
+	if strings.HasPrefix(reason, "edition ") || strings.HasPrefix(reason, "file and release name disagree about the edition") {
+		return false
+	}
+	return why(reason) == "conflict" || strings.HasPrefix(reason, "HolyArrs refused ") || strings.Contains(reason, "then import again")
+}
+
+// canImportDecisionRow reports whether a download in needs_a_decision has a
+// Slot waiting on this download with a retryable import reason.
+func canImportDecisionRow(d domain.Download, slots map[int64]slotInfo) bool {
+	for _, sid := range d.SlotIDs {
+		if si, ok := slots[sid]; ok && si.line.State == string(mediafiles.SlotNeedsADecision) && (!si.activeDL.Valid || si.activeDL.Int64 == d.ID) && canRetryImportReason(si.lastReason) {
+			return true
+		}
+	}
+	return false
 }

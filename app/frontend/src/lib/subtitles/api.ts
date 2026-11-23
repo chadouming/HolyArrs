@@ -140,6 +140,9 @@ export interface ModelView {
 	chosen: boolean;
 	// '' for a translation model; 'speech' and 'vad' are the transcriber's two models.
 	kind?: '' | 'speech' | 'vad';
+	quantization?: string;
+	backend?: string;
+	source?: string;
 }
 
 // A graphics card the model runner can use.
@@ -163,6 +166,11 @@ export function modelAction(m: ModelView): 'download' | 'cancel' | 'use' | 'inUs
 	if (m.state === 'downloading') return 'cancel';
 	if (m.state !== 'present') return 'download';
 	return m.chosen ? 'inUse' : 'use';
+}
+
+// Non-empty runtime badges for a built-in model, in display order.
+export function modelBadges(m: Pick<ModelView, 'backend' | 'quantization'>): string[] {
+	return [m.backend?.trim(), m.quantization?.trim()].filter((v): v is string => !!v);
 }
 
 // A file or memory size in plain words: GB with one decimal, MB below one GB.

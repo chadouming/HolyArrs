@@ -32,6 +32,7 @@ import (
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/sources"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles"
+	"github.com/HolyArrs/holyarrs/app/backend/internal/transcode"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/jobs"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/secrets"
@@ -137,6 +138,8 @@ type services struct {
 	Media *mediaservers.Linker
 	// Subtitles runs subtitle work; New makes one when nil.
 	Subtitles *subtitles.Service
+	// Transcode runs native video transcoding; New makes one when nil.
+	Transcode *transcode.Service
 	// States holds the state of every supervised stage (may be nil).
 	States *jobs.Registry
 	// SafeMode says the app started with only the core.
@@ -209,6 +212,9 @@ func (s *services) fill() {
 	}
 	if s.Subtitles == nil {
 		s.Subtitles = subtitles.NewService(s.Store, s.Secrets, s.Live, s.Queue)
+	}
+	if s.Transcode == nil {
+		s.Transcode = transcode.NewService(s.Store, s.Live, s.Queue)
 	}
 	if s.Search == nil {
 		q := s.Queue

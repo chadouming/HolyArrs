@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/transcribe"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate/builtin"
 )
 
@@ -100,19 +102,76 @@ func (s *Service) modelFor(id string) (modelFile, error) {
 
 // ModelView is one model as the settings page shows it.
 type ModelView struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Size     int64   `json:"size"`
-	Need     uint64  `json:"need"`
-	License  string  `json:"license"`
-	Own      bool    `json:"own"`
-	State    string  `json:"state"`    // present, downloading or missing
-	Progress float64 `json:"progress"` // 0 to 1 while downloading
-	Fits     bool    `json:"fits"`     // the machine has the memory it needs
-	Chosen   bool    `json:"chosen"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Size         int64   `json:"size"`
+	Need         uint64  `json:"need"`
+	License      string  `json:"license"`
+	Quantization string  `json:"quantization,omitempty"`
+	Backend      string  `json:"backend,omitempty"`
+	Source       string  `json:"source,omitempty"`
+	Own          bool    `json:"own"`
+	State        string  `json:"state"`    // present, downloading or missing
+	Progress     float64 `json:"progress"` // 0 to 1 while downloading
+	Fits         bool    `json:"fits"`     // the machine has the memory it needs
+	Chosen       bool    `json:"chosen"`
 	// Kind is "" for a translation model, or what else the model is for:
 	// speech (the transcriber's model) or vad (its voice detection).
 	Kind string `json:"kind"`
+}
+
+var ggufQuantRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(IQ[1-4]_[A-Z0-9]+|Q[2-8]_[0-9A-Z_]+|BF16|FP16|F16|F32|MXFP4)(?:[^a-z0-9_]|$)`)
+
+func inferGGUFQuant(name string) string {
+	m := ggufQuantRe.FindStringSubmatch(name)
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.ToUpper(m[1])
+}
+
+func dirSize(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if fi, err := d.Info(); err == nil && fi.Mode().IsRegular() {
+			total += fi.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+func resolveCatalogueDisplay(modelsDir string, m builtin.Model, ovSpeech, ovTranslate, ovPreferFP16 bool) (name, quant, backend, source string, size int64, need uint64) {
+	useOV := m.OpenVINO != nil && ((m.Kind == "" && ovTranslate) || ((m.Kind == builtin.KindSpeech || m.Kind == builtin.KindVAD) && ovSpeech))
+	if !useOV {
+		return m.Name, m.Quantization, m.Backend, m.Source, m.Size, m.NeedBytes
+	}
+	ov := m.OpenVINO
+	if m.ID == "whisper-large-v3-turbo-q8_0" && ovPreferFP16 {
+		if fp16, ok := builtin.ByID("whisper-large-v3-turbo"); ok && fp16.OpenVINO != nil {
+			ov = fp16.OpenVINO
+		}
+	} else if m.ID == "hy-mt2-1.8b-q8" && builtin.OpenVINOHyMTINT4() {
+		ov = &builtin.OpenVINOModel{
+			Name:         "Hy-MT2 1.8B",
+			Quantization: "INT4",
+			Backend:      "OpenVINO",
+			Source:       "chadouming/Hy-MT2-1.8B-int4-ov",
+			VariantDir:   "ov-hy-mt2-1.8b-int4",
+			Size:         1218806733,
+			NeedBytes:    2 << 30,
+		}
+	}
+	size = ov.Size
+	if modelsDir != "" && ov.VariantDir != "" {
+		if actual := dirSize(filepath.Join(modelsDir, "openvino", ov.VariantDir)); actual > 0 {
+			size = actual
+		}
+	}
+	return ov.Name, ov.Quantization, ov.Backend, ov.Source, size, ov.NeedBytes
 }
 
 // Models lists the catalogue's models, then the owner's own .gguf files in
@@ -127,6 +186,9 @@ func (s *Service) Models(ctx context.Context) []ModelView {
 			chosenSpeechID = sp.ID
 		}
 	}
+	ovSpeech := transcribe.UsesOpenVINO()
+	ovTranslate := builtin.UsesOpenVINO()
+	ovPreferFP16 := transcribe.OpenVINOPreferFP16()
 	total := builtin.TotalMemory()
 	fits := func(need uint64) bool { return total == 0 || need <= total }
 	out := []ModelView{}
@@ -140,7 +202,21 @@ func (s *Service) Models(ctx context.Context) []ModelView {
 		case builtin.KindSpeech:
 			isChosen = m.ID == chosenSpeechID
 		}
-		v := ModelView{ID: m.ID, Name: m.Name, Size: m.Size, Need: m.NeedBytes, License: m.License, State: "missing", Fits: fits(m.NeedBytes), Chosen: isChosen, Kind: m.Kind}
+		name, quant, backend, source, size, need := resolveCatalogueDisplay(s.ModelsDir, m, ovSpeech, ovTranslate, ovPreferFP16)
+		v := ModelView{
+			ID:           m.ID,
+			Name:         name,
+			Size:         size,
+			Need:         need,
+			License:      m.License,
+			Quantization: quant,
+			Backend:      backend,
+			Source:       source,
+			State:        "missing",
+			Fits:         fits(need),
+			Chosen:       isChosen,
+			Kind:         m.Kind,
+		}
 		if _, err := s.modelFor(m.ID); err == nil {
 			v.State = "present"
 		} else if p, ok := s.downloading(m.ID); ok {
@@ -159,7 +235,18 @@ func (s *Service) Models(ctx context.Context) []ModelView {
 		if err != nil {
 			continue
 		}
-		own = append(own, ModelView{ID: id, Name: m.Name, Size: int64(m.NeedBytes - ownExtra), Need: m.NeedBytes, Own: true, State: "present", Fits: fits(m.NeedBytes), Chosen: id == chosen})
+		own = append(own, ModelView{
+			ID:           id,
+			Name:         m.Name,
+			Size:         int64(m.NeedBytes - ownExtra),
+			Need:         m.NeedBytes,
+			Quantization: inferGGUFQuant(m.Name),
+			Backend:      "GGUF",
+			Own:          true,
+			State:        "present",
+			Fits:         fits(m.NeedBytes),
+			Chosen:       id == chosen,
+		})
 	}
 	sort.Slice(own, func(i, j int) bool { return own[i].ID < own[j].ID })
 	return append(out, own...)

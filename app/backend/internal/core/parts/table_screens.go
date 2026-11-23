@@ -39,6 +39,7 @@ var screenOwners = map[string]Owner{
 	"/library/rename":                Media,
 	"/library/missing-subtitles":     subtitles,
 	"/subtitles":                     subtitles,
+	"/transcode":                     Media,
 	"/search":                        Media,
 	"/title/[kind]/[tmdb]":           Media,
 	"/music/artist/[mbid]":           music,
@@ -102,6 +103,7 @@ var loopOwners = map[string]Owner{
 	"jobs_heavy":       Core,
 	"jobs_migrate":     Core,
 	"jobs_translate":   Core,
+	"jobs_transcode":   Core,
 	"stranded_imports": Media,
 	"pack_watched":     Media,
 	"watch_history":    Media,
@@ -153,10 +155,13 @@ var jobOwners = map[string]Owner{
 	"subtitle_missing": subtitles,
 	"subtitle_better":  subtitles,
 	"subtitle_look":    subtitles,
+	"subtitle_verify":  subtitles,
 
 	"subtitle_translate":      subtitles,
 	"subtitle_model_download": subtitles,
 	"subtitle_transcribe":     subtitles,
+	"transcode_file":          Media,
+	"transcode_scan":          Media,
 
 	// Requests.
 	"sync_plex_watchlists": wishlist,

@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Șters din Programul de descărcare",
 	"frame.feeds.clearStill": "Încă neșters",
 	"frame.error.pageGone": "Această pagină nu există. Linkul poate fi vechi sau greșit scris.",
-	"frame.nav.subtitles": "Subtitrări"
+	"frame.nav.subtitles": "Subtitrări",
+	"frame.nav.transcode": "Transcodare"
 }

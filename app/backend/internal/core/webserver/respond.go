@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -35,9 +36,12 @@ func FailNoStore(w http.ResponseWriter, code int, msg string) {
 	WriteJSONNoStore(w, code, map[string]string{"error": msg})
 }
 
-// Internal logs err under who and answers 500 without leaking it.
+// Internal logs err under who and answers 500 without leaking it,
+// skipping the log for context.Canceled client disconnects.
 func Internal(w http.ResponseWriter, who string, err error) {
-	log.Printf("%s: %v", who, err)
+	if !errors.Is(err, context.Canceled) {
+		log.Printf("%s: %v", who, err)
+	}
 	Fail(w, http.StatusInternalServerError, "something went wrong; see the log")
 }
 

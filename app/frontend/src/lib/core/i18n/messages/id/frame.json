@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Dibersihkan dari Pengunduh",
 	"frame.feeds.clearStill": "Belum dibersihkan",
 	"frame.error.pageGone": "Halaman ini tidak ada. Tautannya mungkin lama atau salah ketik.",
-	"frame.nav.subtitles": "Subtitel"
+	"frame.nav.subtitles": "Subtitel",
+	"frame.nav.transcode": "Transkode"
 }

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/jobs"
@@ -487,5 +488,136 @@ func TestChoose_ReplacesTheRegionalFileOfABaseWish(t *testing.T) {
 	}
 	if _, err := os.Stat(f.abs("The Lantern (2010)/The Lantern (2010) 1080p BluRay.pt-BR.srt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the pt-BR file stayed beside the chosen one: %v", err)
+	}
+}
+
+// An automatic job whose pinned built-in track number became stale (for
+// example after transcode renumbered tracks) falls back to the current
+// built-in text track and translates cleanly.
+func TestTranslate_AutomaticStaleBuiltInTrackFallsBack(t *testing.T) {
+	f := newFix(t)
+	realTrack := labMovie(t, f)
+	s, _ := withTranslator(t, f, &faketranslator.OpenAI{})
+	ctx := context.Background()
+	cur := s.Translator(ctx)
+	if _, err := s.SaveTranslator(ctx, TranslatorInput{Kind: cur.Kind, URL: cur.URL, Model: cur.Model, BuiltInAuto: true}, domain.System); err != nil {
+		t.Fatal(err)
+	}
+	staleTrack := realTrack + 99
+	res, err := s.Translate(ctx, f.movieFile, TranslateRequest{
+		Language: "pt-br",
+		From:     "en",
+		Source:   SourceBuiltIn,
+		Track:    staleTrack,
+		ByHand:   false,
+	}, domain.System)
+	if err != nil {
+		t.Fatalf("automatic stale track failed: %v", err)
+	}
+	if res.Source != SourceBuiltIn || res.Translated == 0 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	// By hand keeps strict pinned behavior.
+	if _, err := s.Translate(ctx, f.movieFile, TranslateRequest{
+		Language: "es",
+		From:     "en",
+		Source:   SourceBuiltIn,
+		Track:    staleTrack,
+		ByHand:   true,
+	}, domain.System); !errors.Is(err, ErrNoSource) {
+		t.Fatalf("by hand with stale track = %v, want ErrNoSource", err)
+	}
+}
+
+// An automatic job whose pinned beside path disappeared falls back to the
+// current beside or built-in text subtitle and translates cleanly.
+func TestTranslate_AutomaticStaleBesidePathFallsBack(t *testing.T) {
+	f := newFix(t)
+	s, _ := withTranslator(t, f, &faketranslator.OpenAI{})
+	ctx := context.Background()
+	curPath := "The Lantern (2010)/The Lantern (2010) 1080p BluRay.en.srt"
+	if err := os.WriteFile(f.abs(curPath), []byte(fakesite.Cue("hello", 1000)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Translate(ctx, f.movieFile, TranslateRequest{
+		Language: "pt-br",
+		From:     "en",
+		Source:   SourceBeside,
+		Path:     "The Lantern (2010)/OldName.en.srt",
+		ByHand:   false,
+	}, domain.System)
+	if err != nil {
+		t.Fatalf("automatic stale beside path failed: %v", err)
+	}
+	if res.Source != SourceBeside || res.Translated != 1 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+}
+
+// When all text subtitles vanished before an automatic job ran, and the
+// fallback search saves a subtitle or starts transcription, the job skips
+// cleanly instead of failing.
+func TestTranslate_AutomaticMissingSourceFallbackSkipsCleanly(t *testing.T) {
+	f := newFix(t)
+	site := &fakesite.Site{Subs: []fakesite.Sub{{
+		ID: "pt1", Kind: "movie", Language: "pt-br", Title: "The Lantern", Year: 2010, ByID: true, Trusted: true,
+		Release: "The.Lantern.2010.1080p.BluRay.x264-GRP", Format: "srt", Text: fakesite.Cue("olá", 1000),
+	}}}
+	s, _ := svc(t, f, site)
+	ctx := context.Background()
+	v, err := secrets.Open(ctx, f.st, make([]byte, secrets.KeySize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Vault = v
+	ft := &faketranslator.OpenAI{Key: fakeAIKey}
+	srv := httptest.NewServer(ft)
+	t.Cleanup(srv.Close)
+	if _, err := s.SaveTranslator(ctx, TranslatorInput{Kind: TranslatorOpenAI, URL: srv.URL + "/v1", Model: "lab-model", Key: fakeAIKey, BuiltInAuto: true}, domain.System); err != nil {
+		t.Fatal(err)
+	}
+	wishAll(t, f, Want{Language: "pt-br", TranslateFrom: "en"})
+
+	r := &jobs.Run{Job: jobs.Job{
+		Subject: &domain.Subject{Type: "file", ID: f.movieFile},
+		Params:  map[string]any{"language": "pt-br", "from": "en", "source": SourceBuiltIn, "track": 3},
+	}}
+	if err := s.handleTranslate(ctx, r); err != nil {
+		t.Fatalf("handleTranslate returned error instead of skipping cleanly: %v", err)
+	}
+	if _, err := os.Stat(f.abs("The Lantern (2010)/The Lantern (2010) 1080p BluRay.pt-BR.srt")); err != nil {
+		t.Fatalf("fallback search did not save subtitle: %v", err)
+	}
+	if es := eventsOf(t, f.st, EventTranslateFailed); len(es) != 0 {
+		t.Fatalf("unexpected failed event: %+v", es)
+	}
+
+	// Also verify fallback starting Whisper transcription skips cleanly.
+	f2 := newFix(t)
+	s2, q2 := withTranslator(t, f2, &faketranslator.OpenAI{})
+	withTranscriber(t, f2, s2, "en", "eng")
+	transcribeOn(t, f2)
+	cur := s2.Translator(ctx)
+	if _, err := s2.SaveTranslator(ctx, TranslatorInput{Kind: cur.Kind, URL: cur.URL, Model: cur.Model, BuiltInAuto: true}, domain.System); err != nil {
+		t.Fatal(err)
+	}
+	wishAll(t, f2, Want{Language: "pt-br", TranslateFrom: "en"})
+	r2 := &jobs.Run{Job: jobs.Job{
+		Subject: &domain.Subject{Type: "file", ID: f2.movieFile},
+		Params:  map[string]any{"language": "pt-br", "from": "en", "source": SourceBuiltIn, "track": 3},
+	}}
+	if err := s2.handleTranslate(ctx, r2); err != nil {
+		t.Fatalf("handleTranslate transcribing fallback failed: %v", err)
+	}
+	if len(*q2) != 1 || (*q2)[0].kind != KindTranscribe {
+		t.Fatalf("expected queued transcription, got %+v", *q2)
+	}
+	var next sql.NullString
+	_ = f2.st.Read().QueryRow("SELECT next_try_at FROM subtitles WHERE file_id = ? AND place = 'wish' AND language = 'pt-br'", f2.movieFile).Scan(&next)
+	if next.Valid && next.String >= database.FormatTime(now().Add(translationHold-time.Minute)) {
+		t.Fatalf("wish should not be held for translation when fallback queued transcribe: %v", next.String)
+	}
+	if maxCharsFor(Translator{Kind: TranslatorBuiltIn}) != 2400 || maxCharsFor(Translator{Kind: TranslatorOpenAI}) != 0 {
+		t.Fatalf("unexpected maxCharsFor values")
 	}
 }

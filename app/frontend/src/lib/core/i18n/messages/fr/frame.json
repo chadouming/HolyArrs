@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Retiré du téléchargeur",
 	"frame.feeds.clearStill": "Pas encore retiré",
 	"frame.error.pageGone": "Cette page n'existe pas. Le lien est peut-être ancien ou mal saisi.",
-	"frame.nav.subtitles": "Sous-titres"
+	"frame.nav.subtitles": "Sous-titres",
+	"frame.nav.transcode": "Transcoder"
 }

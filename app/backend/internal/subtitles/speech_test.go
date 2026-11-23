@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HolyArrs/holyarrs/app/backend/internal/core/jobs"
 	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/transcribe"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate/faketranslator"
@@ -291,5 +292,125 @@ func TestTakeExtraDynamicYieldUnblocksWaitingJob(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("job 2 remained blocked after extra[0].Release()")
+	}
+}
+
+func TestHasQueuedTranscribeAndNoExtraBorrowWhenQueued(t *testing.T) {
+	f := newFix(t)
+	s, _ := withTranslator(t, f, &faketranslator.OpenAI{})
+	withBuiltIn(t, s)
+	withTranscriber(t, f, s, "en,en,en", "eng")
+	withSpeechServer(t, s)
+	ctx := context.Background()
+	wishAll(t, f, Want{Language: "en"})
+
+	in := builtInInput()
+	in.GPU = GPUAll
+	if _, err := s.SaveTranslator(ctx, in, domain.System); err != nil {
+		t.Fatal(err)
+	}
+	set := ReadSettings(ctx, f.st.Read())
+	set.TranscribeAtOnce = 1
+	if err := SaveSettings(ctx, f.st, set, domain.System); err != nil {
+		t.Fatal(err)
+	}
+
+	if s.hasQueuedTranscribe(ctx) {
+		t.Fatal("hasQueuedTranscribe reported true on empty queue")
+	}
+
+	q := jobs.New(f.st, jobs.Options{})
+	// A future-scheduled job must not count as ready to run.
+	futureID, _, err := q.EnqueueAt(ctx, KindTranscribe, &domain.Subject{Type: "file", ID: f.movieFile + 1}, nil, "transcribe:future", domain.System, time.Now().Add(time.Hour))
+	if err != nil || futureID == 0 {
+		t.Fatalf("enqueue future: id=%d err=%v", futureID, err)
+	}
+	if s.hasQueuedTranscribe(ctx) {
+		t.Fatal("hasQueuedTranscribe reported true for future run_after job")
+	}
+
+	// A due queued transcribe job must be detected and prevent borrowing extra slots.
+	dueID, _, err := q.Enqueue(ctx, KindTranscribe, &domain.Subject{Type: "file", ID: f.movieFile + 2}, nil, "transcribe:due", domain.System)
+	if err != nil || dueID == 0 {
+		t.Fatalf("enqueue due: id=%d err=%v", dueID, err)
+	}
+	if !s.hasQueuedTranscribe(ctx) {
+		t.Fatal("hasQueuedTranscribe reported false with due queued job")
+	}
+
+	res, err := s.Transcribe(ctx, f.movieFile, true, domain.System)
+	if err != nil || res.Language != "en" {
+		t.Fatalf("transcribe with queued sibling failed: %+v %v", res, err)
+	}
+	s.speech.mu.Lock()
+	serverCountQueued := len(s.speech.servers)
+	s.speech.mu.Unlock()
+	if serverCountQueued != 1 {
+		t.Fatalf("allocated %d speech servers while another job was queued, want 1", serverCountQueued)
+	}
+
+	// Remove the queued job and transcribe again: now extra slot borrowing is allowed.
+	if err := q.Cancel(ctx, dueID); err != nil {
+		t.Fatal(err)
+	}
+	if s.hasQueuedTranscribe(ctx) {
+		t.Fatal("hasQueuedTranscribe reported true after cancelling due job")
+	}
+	// Drop the saved subtitle so Transcribe runs again.
+	subPinExec(t, f.st, "DELETE FROM subtitles WHERE file_id = ?", f.movieFile)
+	_ = os.Remove(f.abs(res.Path))
+
+	res2, err := s.Transcribe(ctx, f.movieFile, true, domain.System)
+	if err != nil || res2.Language != "en" {
+		t.Fatalf("transcribe without queued sibling failed: %+v %v", res2, err)
+	}
+	s.speech.mu.Lock()
+	serverCountIdle := len(s.speech.servers)
+	s.speech.mu.Unlock()
+	if serverCountIdle != 2 {
+		t.Fatalf("allocated %d speech servers when idle, want 2 (primary + borrowed extra)", serverCountIdle)
+	}
+}
+
+func TestSpeechPoolWorkersDynamicCeiling(t *testing.T) {
+	f := newFix(t)
+	s, _ := withTranslator(t, f, &faketranslator.OpenAI{})
+	withBuiltIn(t, s)
+	ctx := context.Background()
+
+	// Even on CPU setting (""), SpeechPoolWorkers scales to all detected GPUs * MaxTranscribeAtOnce.
+	in := builtInInput()
+	in.GPU = ""
+	if _, err := s.SaveTranslator(ctx, in, domain.System); err != nil {
+		t.Fatal(err)
+	}
+	if got := SpeechWorkers(ctx, f.st); got != 1 {
+		t.Fatalf("SpeechWorkers(CPU) = %d, want 1", got)
+	}
+	if got := SpeechPoolWorkers(ctx, f.st); got != 2*MaxTranscribeAtOnce {
+		t.Fatalf("SpeechPoolWorkers(2 GPUs) = %d, want %d", got, 2*MaxTranscribeAtOnce)
+	}
+
+	// Single GPU setting still gets full multi-GPU ceiling for live settings changes.
+	in.GPU = "Vulkan0"
+	if _, err := s.SaveTranslator(ctx, in, domain.System); err != nil {
+		t.Fatal(err)
+	}
+	set := ReadSettings(ctx, f.st.Read())
+	set.TranscribeAtOnce = 1
+	if err := SaveSettings(ctx, f.st, set, domain.System); err != nil {
+		t.Fatal(err)
+	}
+	if got := SpeechWorkers(ctx, f.st); got != 1 {
+		t.Fatalf("SpeechWorkers(Vulkan0, 1) = %d, want 1", got)
+	}
+	if got := SpeechPoolWorkers(ctx, f.st); got != 2*MaxTranscribeAtOnce {
+		t.Fatalf("SpeechPoolWorkers(Vulkan0, 2 GPUs) = %d, want %d", got, 2*MaxTranscribeAtOnce)
+	}
+
+	// With no GPUs detected, falls back to 1.
+	t.Setenv("FAKE_NO_DEVICES", "1")
+	if got := SpeechPoolWorkers(ctx, f.st); got != 1 {
+		t.Fatalf("SpeechPoolWorkers(no devices) = %d, want 1", got)
 	}
 }

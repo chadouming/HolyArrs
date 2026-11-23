@@ -168,9 +168,10 @@ export function navEnded(): void {
 // One a newer page change replaced ends the same way while the newer one is still on its way: the veil stays for it.
 export function navWatch(complete: Promise<unknown> | undefined, replaced: () => boolean = () => false): void {
 	navStarted();
-	complete?.catch(() => {
+	const finish = () => {
 		if (!replaced()) navEnded();
-	});
+	};
+	complete?.then(finish, finish);
 }
 
 // Hold is zero on first loads so only reloads replay the full loader.

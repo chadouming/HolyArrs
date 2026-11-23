@@ -334,8 +334,9 @@ func Run(ctx context.Context, video string, t Track, hint string, o Options) (Re
 	}
 	defer os.RemoveAll(dir)
 	wav := filepath.Join(dir, "audio.wav")
-	if _, _, err := run(ctx, o.Log, o.Programs.FFmpeg, "-nostdin", "-loglevel", "error", "-y", "-i", video,
-		"-map", "0:a:"+strconv.Itoa(t.Index), "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav); err != nil {
+	if _, _, err := run(ctx, o.Log, o.Programs.FFmpeg, "-nostdin", "-loglevel", "error", "-y",
+		"-threads", "2", "-i", video,
+		"-map", "0:a:"+strconv.Itoa(t.Index), "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav); err != nil {
 		return res, err
 	}
 	o.tell(shareAudio)

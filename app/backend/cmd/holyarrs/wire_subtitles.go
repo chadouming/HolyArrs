@@ -19,19 +19,21 @@ import (
 func newSubtitles(ctx context.Context, subs *subtitles.Service, configDir string, q *jobs.Queue, parts jobs.Gate) *subtitles.Service {
 	subs.ModelsDir = filepath.Join(configDir, "models")
 	subs.Runners = builtin.NewPool(func(line string) { log.Print(line) })
+	subs.Jobs = q
 	subs.LoadPaused(ctx)
 	q.SetGate(subtitles.PauseGate(parts, subs))
 	return subs
 }
 
-// speechPools is the job queue's worker counts with as many workers for
-// transcripts as can run at once: so many on each graphics card. The count is
-// read once, at start.
+// speechPools is the job queue's worker counts with a ceiling large enough for
+// every graphics card's transcript slots, while speechPlaces.take gates active
+// concurrency from live settings and VRAM.
 func speechPools(ctx context.Context, st *database.Store) map[jobs.Pool]int {
 	pools := map[jobs.Pool]int{}
 	for k, v := range jobs.DefaultPools {
 		pools[k] = v
 	}
-	pools[jobs.PoolTranscribe] = subtitles.SpeechWorkers(ctx, st)
+	pools[jobs.PoolTranscribe] = subtitles.SpeechPoolWorkers(ctx, st)
+	pools[jobs.PoolTranslate] = subtitles.TranslatePoolWorkers(ctx, st)
 	return pools
 }

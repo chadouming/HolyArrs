@@ -316,12 +316,31 @@ func TestGPUFlashAttnAndQuantKVFlags(t *testing.T) {
 }
 
 func TestGPUParallelFor(t *testing.T) {
-	if got := GPUParallelFor(0, 3<<30); got != GPUParallel {
-		t.Fatalf("unknown memory = %d, want %d", got, GPUParallel)
+	if got := GPUParallelFor(0, 3<<30); got != 4 {
+		t.Fatalf("unknown memory = %d, want 4", got)
+	}
+	if got := GPUParallelFor(-1, 7<<30); got != 4 {
+		t.Fatalf("negative memory = %d, want 4", got)
 	}
 	small := []struct {
 		mb, want int
-	}{{12216, 8}, {8192, 6}, {6144, 4}, {4096, 2}}
+	}{
+		{15000, 12},
+		{10995, 12}, // 12 GB idle
+		{9795, 12},  // 12 GB + transcode
+		{8500, 12},
+		{7695, 10}, // 12 GB + Q8 + transcode
+		{6500, 10},
+		{5595, 8}, // 12 GB + 2x Q8 + transcode
+		{4400, 8},
+		{3795, 6}, // 12 GB + 2x FP16 + transcode
+		{3100, 6},
+		{3072, 4}, // 4 GB idle
+		{2400, 4},
+		{2200, 2},
+		{2000, 2},
+		{1872, 1}, // 4 GB + transcode
+	}
 	for _, c := range small {
 		if got := GPUParallelFor(c.mb, 3<<30); got != c.want {
 			t.Fatalf("small model %d MB = %d, want %d", c.mb, got, c.want)
@@ -329,11 +348,79 @@ func TestGPUParallelFor(t *testing.T) {
 	}
 	large := []struct {
 		mb, want int
-	}{{12216, 6}, {8192, 4}, {6144, 2}, {4096, 1}}
+	}{
+		{15000, 8},
+		{10995, 8},
+		{9500, 8},
+		{8500, 6},
+		{7500, 6},
+		{7000, 4},
+		{6000, 4},
+		{5500, 2},
+		{4800, 2},
+		{4096, 1},
+	}
 	for _, c := range large {
 		if got := GPUParallelFor(c.mb, 7<<30); got != c.want {
 			t.Fatalf("large model %d MB = %d, want %d", c.mb, got, c.want)
 		}
+	}
+}
+
+func TestEnsureReusesActiveRunnerWhenOnlyParallelDiffers(t *testing.T) {
+	r := newRunner(t)
+	o1 := opts("a.gguf")
+	o1.GPU = "Vulkan0"
+	o1.Parallel = 6
+	base1, key1, err := r.Ensure(context.Background(), o1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid1 := r.pid()
+
+	o2 := o1
+	o2.Parallel = 4
+	base2, key2, err := r.Ensure(context.Background(), o2)
+	if err != nil || base2 != base1 || key2 != key1 || r.pid() != pid1 {
+		t.Fatalf("active Ensure with different Parallel: %q %q pid %d (was %d): %v", base2, key2, r.pid(), pid1, err)
+	}
+	r.Used()
+	r.Used()
+
+	base3, key3, err := r.Ensure(context.Background(), o2)
+	if err != nil || key3 == key1 || r.pid() == pid1 || base3 == "" {
+		t.Fatalf("idle Ensure with different Parallel: key changed %v, pid %d (was %d): %v", key3 != key1, r.pid(), pid1, err)
+	}
+	gone(t, pid1)
+}
+
+func TestPoolRunningAndActiveOn(t *testing.T) {
+	p := NewPool(nil)
+	t.Cleanup(p.Stop)
+
+	if p.RunningOn("Vulkan0") || p.ActiveOn("Vulkan0") {
+		t.Fatal("expected unstarted runner to be neither running nor active")
+	}
+	r := p.Runner("Vulkan0")
+	if _, _, err := r.Ensure(context.Background(), opts("a.gguf")); err != nil {
+		t.Fatal(err)
+	}
+	if !p.RunningOn("Vulkan0") || !r.Resident() {
+		t.Fatal("expected runner to report running/resident after Ensure")
+	}
+	if !p.ActiveOn("Vulkan0") || !r.Active() {
+		t.Fatal("expected runner to report active while between Ensure and Used")
+	}
+	r.Used()
+	if !p.RunningOn("Vulkan0") {
+		t.Fatal("expected idle runner to remain running/resident")
+	}
+	if p.ActiveOn("Vulkan0") || r.Active() {
+		t.Fatal("expected idle runner to report Active=false after Used")
+	}
+	p.StopIdle("Vulkan0")
+	if p.RunningOn("Vulkan0") || r.Resident() {
+		t.Fatal("expected StopIdle to stop idle runner")
 	}
 }
 
@@ -357,4 +444,43 @@ func TestRunnerStopIfIdle(t *testing.T) {
 		t.Fatal("StopIfIdle did not stop an idle runner")
 	}
 	gone(t, pid)
+}
+
+func TestGPUOptionsPrefillBatchFlags(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "args")
+	t.Setenv("FAKE_ARGS_FILE", file)
+	r := newRunner(t)
+
+	// GPU with Parallel >= 4 gets --batch-size 4096 --ubatch-size 512.
+	o := opts("a.gguf")
+	o.GPU, o.Parallel = "Vulkan0", 4
+	if _, _, err := r.Ensure(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	a := argsOf(t, file)
+	if !strings.Contains(a, " --batch-size 4096 ") || !strings.Contains(a, " --ubatch-size 512 ") {
+		t.Fatalf("GPU parallel=4 missing prefill batch flags: %s", a)
+	}
+	r.Used()
+
+	// GPU with Parallel == 1 does not get prefill batch flags.
+	o.ModelPath, o.Parallel = "b.gguf", 1
+	if _, _, err := r.Ensure(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	a = argsOf(t, file)
+	if strings.Contains(a, "--batch-size") || strings.Contains(a, "--ubatch-size") {
+		t.Fatalf("GPU parallel=1 should not pass prefill batch flags: %s", a)
+	}
+	r.Used()
+
+	// CPU with Parallel >= 4 does not get prefill batch flags.
+	o.GPU, o.Parallel = "", 4
+	if _, _, err := r.Ensure(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	a = argsOf(t, file)
+	if strings.Contains(a, "--batch-size") || strings.Contains(a, "--ubatch-size") {
+		t.Fatalf("CPU should not pass prefill batch flags: %s", a)
+	}
 }

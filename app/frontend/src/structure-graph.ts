@@ -19,6 +19,7 @@ export const LAYER: Record<string, number> = {
 	movies: 7,
 	shows: 7,
 	music: 7,
+	transcode: 7,
 	requests: 8,
 	discover: 9,
 	arrapi: 9,
@@ -97,6 +98,7 @@ const ROUTES: [RegExp, string][] = [
 	[/^routes\/settings\/media-servers/, 'mediaservers'],
 	[/^routes\/settings\/(search|sources)/, 'sources'],
 	[/^routes\/settings\/subtitles/, 'subtitles'],
+	[/^routes\/transcode\b/, 'transcode'],
 	[/^routes\/settings\/tmdb/, 'metadata']
 ];
 

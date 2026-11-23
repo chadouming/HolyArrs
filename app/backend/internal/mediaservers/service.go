@@ -272,7 +272,7 @@ func ChangeOf(e domain.Event) string {
 	switch e.Kind {
 	case "import_done", "import_partly_done":
 		return Created
-	case domain.EventRenamed:
+	case domain.EventRenamed, "transcode_done":
 		return Modified
 	case domain.EventTitleRemoved, domain.EventEpisodesRemoved:
 		if del, _ := e.Data["delete_files"].(bool); del {

@@ -124,6 +124,8 @@ func TestImportAgainLeavesOtherCardsAlone(t *testing.T) {
 		// No file matched: by hand finds nothing in a download that holds only archives, so the import can be asked again.
 		"no file in the download matched this movie; match the files by hand",
 		"HolyArrs can't read this download's files: HOLYARRS_SAVE_PATH is not set and q has no path pair. Set HOLYARRS_SAVE_PATH if both apps see the same download folder, or add a path pair in Settings > Downloaders, then import again",
+		"the file for S01E09 could not be placed: Tokyo Ghoul; holds S01E09; a sample, not the full video (it plays 60 seconds)",
+		"a file with the same name that HolyArrs did not place is already in the folder; move it out of the folder, then import again",
 	} {
 		w.exec(t, "UPDATE slots SET state = 'needs_a_decision', last_reason = ? WHERE id = ?", reason, w.slotID)
 		if err := m.ImportAgain(context.Background(), id, luis); err != nil {
@@ -131,6 +133,27 @@ func TestImportAgainLeavesOtherCardsAlone(t *testing.T) {
 		}
 		if sl := w.slot(t); sl.State != mediafiles.SlotImporting {
 			t.Fatalf("%q: slot %s", reason, sl.State)
+		}
+	}
+}
+
+// DownloadsView exposes CanImport on finished needs_a_decision rows only for retryable import conflicts and refusals.
+func TestImportAgainDownloadsViewCanImport(t *testing.T) {
+	t.Parallel()
+	x := seed41(t, mediafiles.SlotNeedsADecision, "finished")
+	for _, tc := range []struct {
+		reason string
+		want   bool
+	}{
+		{"no other Release passed the Pick rules", false},
+		{"edition is unknown; confirm the edition or choose an unconstrained Version", false},
+		{"the file for S01E09 could not be placed: Tokyo Ghoul; holds S01E09; a sample, not the full video (it plays 60 seconds)", true},
+		{"a file with the same name that HolyArrs did not place is already in the folder; move it out of the folder, then import again", true},
+	} {
+		exec41(t, x.s, "UPDATE slots SET last_reason = ? WHERE id = ?", tc.reason, x.slotID)
+		r := ownRow(t, x)
+		if r.Phase != "needs_a_decision" || r.CanImport != tc.want {
+			t.Fatalf("%q: phase %q can_import %v, want %v", tc.reason, r.Phase, r.CanImport, tc.want)
 		}
 	}
 }

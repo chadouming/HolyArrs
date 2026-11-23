@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Очишћено из Преузимача",
 	"frame.feeds.clearStill": "Још није очишћено",
 	"frame.error.pageGone": "Ова страница не постоји. Веза је можда стара или погрешно унета.",
-	"frame.nav.subtitles": "Титлови"
+	"frame.nav.subtitles": "Титлови",
+	"frame.nav.transcode": "Транскодирање"
 }

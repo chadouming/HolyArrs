@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const src = readFileSync(new URL('../../routes/settings/subtitles/+page.svelte', import.meta.url), 'utf8');
+const src = readFileSync(new URL('./SubtitlesSitesSection.svelte', import.meta.url), 'utf8');
 
 // The card's action row, from its opening div to the closing one.
 const actions = (() => {

@@ -62,7 +62,7 @@ test.beforeAll(async ({ browser }) => {
 
 test('the owner adds Moss Parade with every season kept', async () => {
 	await openFromSearch(page, 'moss parade', 'Moss Parade', 'show');
-	const add = page.getByRole('button', { name: 'Add Moss Parade' });
+	const add = page.getByRole('button', { name: 'Add to library: Moss Parade' });
 	if (await add.count()) {
 		await add.click();
 		const dialog = page.getByRole('dialog');

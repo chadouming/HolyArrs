@@ -381,6 +381,10 @@ func (a *Web) decide(w http.ResponseWriter, r *http.Request) {
 			webserver.Fail(w, http.StatusConflict, "there is no Release to turn down for this "+noun)
 			return
 		}
+		if a.Queue == nil {
+			webserver.Fail(w, http.StatusServiceUnavailable, "searches are not running")
+			return
+		}
 		reason := "turned down by " + who + " on Needs a decision"
 		// An episode turns the Release down for that episode only; a pack
 		// (or a movie) for everything it holds.
@@ -393,6 +397,49 @@ func (a *Web) decide(w http.ResponseWriter, r *http.Request) {
 			sources.SearchError(w, err)
 			return
 		}
+		type movedSlot struct {
+			id    int64
+			state mediafiles.SlotState
+		}
+		var moved []movedSlot
+		err = a.Store.Write(r.Context(), func(tx *sql.Tx) error {
+			moved = nil
+			for _, t := range targets {
+				var state string
+				if err := tx.QueryRow("SELECT state FROM slots WHERE id = ?", t.SlotID).Scan(&state); err != nil {
+					return err
+				}
+				if state != string(mediafiles.SlotNeedsADecision) {
+					continue
+				}
+				if err := mediafiles.ClearSlotDownloadTx(tx, t.SlotID); err != nil {
+					return err
+				}
+				st := mediafiles.SlotWanted
+				if t.HasCopy {
+					st = mediafiles.SlotBetterWanted
+				}
+				if err := mediafiles.MoveSlotTx(tx, t.SlotID, st, reason, by); err != nil {
+					return err
+				}
+				moved = append(moved, movedSlot{id: t.SlotID, state: st})
+			}
+			if in.Pack && dv.DownloadID != nil {
+				if _, err := tx.Exec("UPDATE downloads SET pack_files = NULL WHERE id = ? AND pack_files IS NOT NULL", *dv.DownloadID); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			webserver.Internal(w, "api", err)
+			return
+		}
+		if a.Live != nil {
+			for _, m := range moved {
+				a.Live.Publish("slot", map[string]any{"id": m.id, "state": m.state, "reason": reason})
+			}
+		}
 		fallthrough
 	case "search":
 		if a.Queue == nil {
@@ -400,14 +447,84 @@ func (a *Web) decide(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var queued []int64
-		for _, t := range targets {
-			jid, _, err := a.Queue.Enqueue(r.Context(), jobs.KindSearchSlot, &domain.Subject{Type: "slot", ID: t.SlotID}, map[string]any{"by_hand": true},
-				"hand_search_slot:"+itoa(t.SlotID), by)
-			if err != nil {
-				webserver.Internal(w, "api", err)
-				return
+		enqueueSlot := func(sid int64) error {
+			jid, _, err := a.Queue.Enqueue(r.Context(), jobs.KindSearchSlot, &domain.Subject{Type: "slot", ID: sid}, map[string]any{"by_hand": true},
+				"hand_search_slot:"+itoa(sid), by)
+			if err == nil {
+				queued = append(queued, jid)
 			}
-			queued = append(queued, jid)
+			return err
+		}
+		if in.Pack && (dv.Kind == "show" || dv.Kind == "artist") {
+			type groupKey struct {
+				partID    int64
+				versionID int64
+			}
+			type group struct {
+				key   groupKey
+				slots []int64
+			}
+			var order []groupKey
+			groups := map[groupKey]*group{}
+			var ungrouped []int64
+			for _, t := range targets {
+				verID, partID, _, _, err := mediafiles.SlotRetryFacts(r.Context(), a.Store.Read(), t.SlotID)
+				if err != nil {
+					webserver.Internal(w, "api", err)
+					return
+				}
+				if !partID.Valid {
+					ungrouped = append(ungrouped, t.SlotID)
+					continue
+				}
+				k := groupKey{partID: partID.Int64, versionID: verID}
+				g, ok := groups[k]
+				if !ok {
+					g = &group{key: k}
+					groups[k] = g
+					order = append(order, k)
+				}
+				g.slots = append(g.slots, t.SlotID)
+			}
+			for _, k := range order {
+				g := groups[k]
+				switch dv.Kind {
+				case "show":
+					if len(g.slots) > 1 {
+						jid, _, err := a.Queue.Enqueue(r.Context(), jobs.KindSearchSeason, &domain.Subject{Type: "part", ID: k.partID},
+							map[string]any{"version_id": k.versionID, "by_hand": true}, fmt.Sprintf("hand_search_season:%d:%d", k.partID, k.versionID), by)
+						if err != nil {
+							webserver.Internal(w, "api", err)
+							return
+						}
+						queued = append(queued, jid)
+					} else if err := enqueueSlot(g.slots[0]); err != nil {
+						webserver.Internal(w, "api", err)
+						return
+					}
+				case "artist":
+					jid, _, err := a.Queue.Enqueue(r.Context(), jobs.KindSearchAlbum, &domain.Subject{Type: "part", ID: k.partID},
+						map[string]any{"version_id": k.versionID, "by_hand": true}, fmt.Sprintf("hand_search_album:%d:%d", k.partID, k.versionID), by)
+					if err != nil {
+						webserver.Internal(w, "api", err)
+						return
+					}
+					queued = append(queued, jid)
+				}
+			}
+			for _, sid := range ungrouped {
+				if err := enqueueSlot(sid); err != nil {
+					webserver.Internal(w, "api", err)
+					return
+				}
+			}
+		} else {
+			for _, t := range targets {
+				if err := enqueueSlot(t.SlotID); err != nil {
+					webserver.Internal(w, "api", err)
+					return
+				}
+			}
 		}
 		webserver.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": queued[0], "job_ids": queued, "action": in.Action})
 	case "stop":

@@ -331,7 +331,7 @@ func (s *Searcher) judgeShow(ctx context.Context, set showSet, all []found, hand
 	for i, f := range all {
 		p := releasename.Parse(f.item.Title, releasename.Hints{Size: f.item.Size, Show: true})
 		rels[i] = mediafiles.ReleaseFacts{Name: f.item.Title, Parse: p, Size: f.item.Size, Protocol: f.item.Protocol, Seeders: f.item.Seeders,
-			PublishedAt: f.item.Published, InfoHash: f.item.InfoHash, SourcePriority: f.src.Priority, Dangerous: bad.has(listingHash(f.item.InfoHash, f.item.Link), f.item.Title)}
+			PublishedAt: f.item.Published, InfoHash: listingHash(f.item.InfoHash, f.item.Link), SourcePriority: f.src.Priority, Dangerous: bad.has(listingHash(f.item.InfoHash, f.item.Link), f.item.Title)}
 		m := mediafiles.MatchRelease(p, []mediafiles.TitleRef{tref})
 		byID := m.Title == nil && (f.byID || set.sameID(f.item))
 		if byID {
@@ -472,7 +472,7 @@ func (set showSet) lines(ss *mediafiles.SlotSet, rel mediafiles.ReleaseFacts, re
 			}
 			continue
 		}
-		if l := turnedFor(e.sl.ID); slices.Contains(l, rel.Name) || rel.InfoHash != "" && slices.Contains(l, rel.InfoHash) {
+		if l := turnedFor(e.sl.ID); mediafiles.TurnedDownMatch(l, rel.Name, rel.InfoHash) {
 			turnedSome = append(turnedSome, e.ref.Label())
 			targetTurned = targetTurned || isTarget
 			continue

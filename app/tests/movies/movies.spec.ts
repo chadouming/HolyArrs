@@ -203,7 +203,7 @@ test('the top-bar search opens Search with Library results; a movie not in the L
 	const detail = page.getByTestId('title-detail');
 	await expect(detail.getByRole('heading', { level: 1, name: 'Iron Lullaby' })).toBeVisible();
 	await expect(detail).toContainText('A lullaby forged for a sleeping city.');
-	await detail.getByRole('button', { name: 'Add Iron Lullaby' }).click();
+	await detail.getByRole('button', { name: 'Add to library: Iron Lullaby' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Add Iron Lullaby' });
 	await expect(dialog.getByLabel('Library folder')).toBeVisible();
 	await dialog.getByRole('button', { name: 'Cancel' }).click();

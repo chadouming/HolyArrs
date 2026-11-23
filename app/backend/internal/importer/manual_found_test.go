@@ -3,6 +3,7 @@ package importer
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -106,5 +107,59 @@ func TestByHandKeepsFoundNoteProtection(t *testing.T) {
 	sl := w.slot(t, 3)
 	if sl.FileID == nil || !w.file(t, *sl.FileID).Protected {
 		t.Fatalf("the imported file lost the note's protection: %+v", sl)
+	}
+}
+
+func TestByHandOverStaleMissingRow(t *testing.T) {
+	w := showSetup(t, nil)
+	ctx := context.Background()
+	src := filepath.Join(w.dl, ep(3))
+	write(t, src, 2048)
+	im := &Importer{Store: w.s, SavePath: w.dl}
+	res, err := im.ImportByHand(ctx, []ByHandItem{{Path: src, SlotID: w.slots[3], Mode: "copy"}}, domain.System)
+	if err != nil || res[0].Outcome != "placed" {
+		t.Fatalf("first import %+v %v", res, err)
+	}
+	sl := w.slot(t, 3)
+	if sl.FileID == nil {
+		t.Fatal("E03 has no file after first import")
+	}
+	staleID := *sl.FileID
+	origRel := w.file(t, staleID).RelativePath
+	if err := os.Remove(res[0].Target); err != nil {
+		t.Fatal(err)
+	}
+	otherRel := w.folder + "/Season 1/Copper Valley - S01E03 - 720p.mkv"
+	write(t, filepath.Join(w.lib, filepath.FromSlash(otherRel)), 2048)
+	if err := w.s.Write(ctx, func(tx *sql.Tx) error {
+		other := &mediafiles.File{SlotIDs: []int64{w.slots[3]}, VersionID: w.vID, RelativePath: otherRel, Size: 2048,
+			Languages: []string{}, MediaInfo: map[string]any{}, Origin: "imported", PlacedBy: "copy", Role: "main", State: "present"}
+		otherID, err := database.Insert(tx, "files", other, domain.System)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec("UPDATE files SET state = 'missing' WHERE id = ?", staleID); err != nil {
+			return err
+		}
+		_, err = tx.Exec("UPDATE slots SET file_id = ?, state = 'in_library' WHERE id = ?", otherID, w.slots[3])
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err = im.ImportByHand(ctx, []ByHandItem{{Path: src, SlotID: w.slots[3], Mode: "copy", Replace: true}}, domain.System)
+	if err != nil || res[0].Outcome != "placed" {
+		t.Fatalf("import over stale missing row: %+v %v", res, err)
+	}
+	sl = w.slot(t, 3)
+	if sl.FileID == nil {
+		t.Fatal("E03 has no file after second import")
+	}
+	if got := w.file(t, *sl.FileID).RelativePath; got != origRel {
+		t.Fatalf("relative_path = %q, want %q", got, origRel)
+	}
+	var n int
+	_ = w.s.Read().QueryRow("SELECT count(*) FROM files WHERE version_id = ? AND relative_path = ?", w.vID, origRel).Scan(&n)
+	if n != 1 {
+		t.Fatalf("%d rows at %q", n, origRel)
 	}
 }

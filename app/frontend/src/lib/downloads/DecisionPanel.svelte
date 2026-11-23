@@ -128,6 +128,7 @@
 		const w = manyWords(d.kind);
 		return [
 			...(again ? [{ label: t('downloads.dp.searchThese', { many: w?.many ?? '' }), onselect: () => act(d, 'search', true, key) }] : []),
+			...(!again && mayImportAgain(d) ? [{ label: t('downloads.act.importAgain'), disabled: !!d.reading, onselect: () => importAgain(d, key) }] : []),
 			...(d.release_id ? [{ label: t('downloads.dp.addPackTurnedDown', { kind: w?.pack === w?.pack && d.kind === 'artist' ? t('downloads.dp.albumWord') : t('downloads.dp.pack') }), onselect: () => act(d, 'turn_down', true, key) }] : []),
 			{ label: t('downloads.dp.stopThese', { many: w?.many ?? '' }), destructive: true, onselect: () => act(d, 'stop', true, key) },
 			{ kind: 'separator' },

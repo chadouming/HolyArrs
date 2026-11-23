@@ -33,6 +33,9 @@ func (a *Handlers) putTranslator(w http.ResponseWriter, r *http.Request) {
 		translateError(w, err)
 		return
 	}
+	if t.Ready() {
+		a.svc.queueAllPendingWork(r.Context())
+	}
 	webserver.WriteJSON(w, http.StatusOK, t)
 }
 
@@ -91,6 +94,7 @@ func (a *Handlers) translateSubtitle(w http.ResponseWriter, r *http.Request) {
 	}
 	in.ByHand = true
 	in.SiteID, in.SiteKey, in.SiteLink, in.SiteFormat, in.SiteLanguage, in.SiteHI, in.SiteScore = 0, "", "", "", "", false, 0
+	a.svc.UnskipLanguage(ctx, fc.file.ID, in.Language, in.Forced, actorOf(r))
 	if err := a.svc.QueueTranslate(ctx, fc.file.ID, in); err != nil {
 		webserver.Internal(w, "api", err)
 		return

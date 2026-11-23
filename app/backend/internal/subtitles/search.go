@@ -77,8 +77,15 @@ func (s *Service) Search(ctx context.Context, fileID int64, opt SearchOptions, b
 		return res, err
 	}
 	res.Status = st
+	var skipped map[wishKey]bool
+	if !opt.Show {
+		skipped, _ = skippedWishesForFile(ctx, s.Store.Read(), fileID)
+	}
 	var targets []target
 	for _, m := range st.Missing {
+		if skipped[wishKey{language: m.Language, forced: m.Forced}] {
+			continue
+		}
 		targets = append(targets, target{want: m, beat: -1, isNew: true})
 	}
 	if opt.Better || opt.Show {
@@ -212,11 +219,16 @@ func (s *Service) Search(ctx context.Context, fileID int64, opt SearchOptions, b
 			if c.Score.Refused != "" || c.Score.Total < pass || c.Score.Total <= t.beat {
 				break // the list is ranked, so nothing after this is better
 			}
-			p, err := s.fetchAndSave(ctx, fc, t, c, bySite[c.Site], set, by)
+			p, err := s.fetchAndSave(ctx, fc, t, c, bySite[c.Site], set, by, true)
 			if err != nil {
 				out.Reason = err.Error()
 				continue
 			}
+			lang := t.want.Language
+			if LangMatches(lang, c.Language) {
+				lang = c.Language
+			}
+			sc.status.Haves = append(sc.status.Haves, Have{Language: lang, Forced: t.want.Forced, HearingImpaired: c.HearingImpaired, Place: "beside", Path: p})
 			out.Result, out.Path, out.Score, out.Site, out.Reason = "saved", p, c.Score.Total, c.Site, ""
 			if t.old != nil {
 				out.Result = "upgraded"
@@ -254,6 +266,7 @@ func (s *Service) afterTarget(ctx context.Context, fc *fileCtx, t target, out *O
 	slotID := fc.file.SlotIDs[0]
 	switch out.Result {
 	case "saved", "upgraded":
+		s.dropSatisfiedQueuedWork(ctx, fileID, t.want)
 		kind, verb := EventSaved, "Saved"
 		if out.Result == "upgraded" {
 			kind, verb = EventUpgraded, "Saved a better"
@@ -261,7 +274,7 @@ func (s *Service) afterTarget(ctx context.Context, fc *fileCtx, t target, out *O
 		s.event(ctx, &domain.Event{Actor: by, Kind: kind, TitleID: &titleID, SlotID: &slotID,
 			Summary: fmt.Sprintf("%s %s subtitle from %s (score %d)", verb, fmtWant(t.want), out.Site, out.Score),
 			Data:    map[string]any{"file_id": fileID, "language": t.want.Language, "path": out.Path, "score": out.Score, "site": out.Site}, GroupKey: "subtitles:" + itoa(fileID)})
-	case "none_good_enough", "translating":
+	case "none_good_enough", "translating", "transcribing":
 		next := now().Add(time.Duration(set.SearchHours) * time.Hour)
 		_ = s.Store.Write(ctx, func(tx *sql.Tx) error {
 			var first sql.NullString
@@ -277,8 +290,8 @@ func (s *Service) afterTarget(ctx context.Context, fc *fileCtx, t target, out *O
 				database.FormatTime(now()), database.FormatTime(now()), database.FormatTime(next), database.FormatTime(now()), fileID, t.want.Language, t.want.Forced)
 			return err
 		})
-		if out.Result == "translating" {
-			return // the translation Job writes its own Event
+		if out.Result == "translating" || out.Result == "transcribing" {
+			return // the translation or speech Job writes its own Event
 		}
 		s.event(ctx, &domain.Event{Actor: by, Kind: EventNoneGood, TitleID: &titleID, SlotID: &slotID,
 			Summary: fmt.Sprintf("No %s subtitle reached the Pass mark", fmtWant(t.want)),
@@ -288,7 +301,7 @@ func (s *Service) afterTarget(ctx context.Context, fc *fileCtx, t target, out *O
 
 // fetchAndSave downloads a candidate, checks it and saves it beside the video,
 // holding any replaced subtitle aside. It returns the saved path.
-func (s *Service) fetchAndSave(ctx context.Context, fc *fileCtx, t target, c Scored, r SiteRow, set Settings, by domain.Actor) (string, error) {
+func (s *Service) fetchAndSave(ctx context.Context, fc *fileCtx, t target, c Scored, r SiteRow, set Settings, by domain.Actor, checkIntegrity bool) (string, error) {
 	site, err := s.client(ctx, r)
 	if err != nil {
 		return "", err
@@ -321,6 +334,30 @@ func (s *Service) fetchAndSave(ctx context.Context, fc *fileCtx, t target, c Sco
 	}
 	row := Subtitle{FileID: fc.file.ID, Language: lang, Forced: t.want.Forced, HearingImpaired: c.HearingImpaired, Place: "beside",
 		SiteName: &c.Site, SiteKey: &c.Key, Score: &c.Score.Total, ScoreParts: c.Score.Parts, Origin: "fetched", State: "present", Sync: map[string]any{}}
+	if checkIntegrity {
+		videoSec := fc.probedVideoSeconds()
+		rep := subtext.CheckIntegrity(text, e.Format, videoSec, t.want.Forced)
+		if !rep.OK {
+			reason := rep.Reason
+			if reason == "" {
+				reason = string(rep.Issue)
+			}
+			ierr := errors.New(reason)
+			s.failed(ctx, fc, t.want, c.Site, ierr, by)
+			return "", ierr
+		}
+		if videoSec > 0 {
+			state := "ok"
+			checkedAt := now()
+			cov := rep.Coverage
+			lastMS := rep.LastMS
+			row.IntegrityState = &state
+			row.IntegrityCoverage = &cov
+			row.IntegrityLastMS = &lastMS
+			row.IntegrityVideoS = &videoSec
+			row.IntegrityCheckedAt = &checkedAt
+		}
+	}
 	if c.MachineMade != "" {
 		// A machine-made file is marked as such and keeps a low score, so a
 		// later search replaces it with a file made by a person.

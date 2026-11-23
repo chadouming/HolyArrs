@@ -22,6 +22,7 @@ var layers = map[string]int{
 	"subtitles":    8,
 	"mediaservers": 8,
 	"alerts":       8,
+	"transcode":    9,
 	"movies":       9,
 	"shows":        9,
 	"music":        11,
@@ -151,6 +152,11 @@ var tableOwner = map[string]string{
 	"subtitle_turned_down": "subtitles",
 	"subtitle_wishes":      "subtitles",
 	"subtitle_transcripts": "subtitles",
+
+	// transcode
+	"transcode_items":            "transcode",
+	"transcode_profiles":         "transcode",
+	"transcode_library_profiles": "transcode",
 
 	// mediaservers
 	"media_servers": "mediaservers",

@@ -30,6 +30,22 @@ func (s *Service) holdTranslation(ctx context.Context, fileID int64, w Want) {
 	})
 }
 
+func (s *Service) clearWishHold(ctx context.Context, fileID int64, language string, forced bool) {
+	_ = s.Store.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE subtitles SET next_try_at = NULL, updated_at = ?
+			WHERE file_id = ? AND place = 'wish' AND language = ? AND forced = ?`, database.FormatTime(now()), fileID, language, forced)
+		return err
+	})
+}
+
+func (s *Service) clearFileWishHold(ctx context.Context, fileID int64) {
+	_ = s.Store.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE subtitles SET next_try_at = NULL, updated_at = ?
+			WHERE file_id = ? AND place = 'wish'`, database.FormatTime(now()), fileID)
+		return err
+	})
+}
+
 // touchStopgap records that a search for something better than a
 // machine-made subtitle ran, so the weekly look moves on to the next one.
 func (s *Service) touchStopgap(ctx context.Context, id int64) {

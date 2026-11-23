@@ -86,7 +86,8 @@ export default defineConfig({
 		// Requests: a member follows a Library artist. After the music projects, so it uses their music folder.
 		{ name: 'requestsmusic', testMatch: '**/requests/follows-library-artist.spec.ts', use: { ...devices['Pixel 7'] }, dependencies: ['musicorganise'] },
 		// Subtitles: English and Spanish as the default languages, the Pass marks, Subtitle sites (the lab's fake site, one that needs your account), every movie missing Spanish with Search all, a movie's and an episode's subtitles (languages, Choose a subtitle, Sync fix, Turn down), History, a phone, accessibility, members see none of it.
-		{ name: 'subtitles', testMatch: '**/subtitles/subtitles.spec.ts', use: { ...devices['Desktop Chrome'] }, dependencies: ['shows'] },
+		{ name: 'subtitles', testMatch: ['**/subtitles/subtitles.spec.ts', '**/subtitles/subtitles-qa.spec.ts'], use: { ...devices['Desktop Chrome'] }, dependencies: ['shows'] },
+		{ name: 'transcode', testMatch: '**/transcode/transcode.spec.ts', use: { ...devices['Desktop Chrome'] }, dependencies: ['setup'] },
 		// Several Versions per show: add a show with a 4K Version, both Versions searched with their own pack, History names the Version, change, add and remove Versions, a busy Version stays, a phone.
 		{ name: 'showversions', testMatch: '**/shows/show-versions.spec.ts', use: { ...devices['Desktop Chrome'] }, dependencies: ['shows', 'downloaders'] },
 		// Parts: Requests and Music turned off hide their menu entries and Settings tiles, a direct link says the part is off, its routes answer 409, and on again everything is back.

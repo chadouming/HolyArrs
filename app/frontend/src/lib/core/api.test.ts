@@ -214,4 +214,104 @@ describe('api client', () => {
 			expect(c.has('/x')).toBe(false);
 		});
 	});
+
+	describe('aborting shared reads', () => {
+		function deferredFetch() {
+			const calls: { signal?: AbortSignal | null; resolve: (r: Response) => void; reject: (e: unknown) => void }[] = [];
+			const f = vi.fn((_u: string, init?: RequestInit) => {
+				return new Promise<Response>((resolve, reject) => {
+					const signal = init?.signal;
+					calls.push({ signal, resolve, reject });
+					signal?.addEventListener(
+						'abort',
+						() => reject(signal.reason ?? new DOMException('Aborted', 'AbortError')),
+						{ once: true }
+					);
+				});
+			});
+			return { f, calls };
+		}
+
+		it('aborts the underlying fetch when the sole caller aborts and starts fresh on retry', async () => {
+			const { f, calls } = deferredFetch();
+			const c = createClient(f);
+			const lost = vi.fn();
+			c.onSignedOut(lost);
+			const ac = new AbortController();
+
+			const p = c.get('/slow', ac.signal);
+			await Promise.resolve();
+			expect(f).toHaveBeenCalledTimes(1);
+			expect(calls[0].signal?.aborted).toBe(false);
+
+			ac.abort();
+			await expect(p).rejects.toThrow();
+			expect(calls[0].signal?.aborted).toBe(true);
+			expect(c.has('/slow')).toBe(false);
+			expect(lost).not.toHaveBeenCalled();
+
+			const p2 = c.get('/slow');
+			await Promise.resolve();
+			expect(f).toHaveBeenCalledTimes(2);
+			calls[1].resolve(reply(200, { ok: true }));
+			await expect(p2).resolves.toEqual({ ok: true });
+		});
+
+		it('keeps the underlying fetch alive when one of two callers aborts', async () => {
+			const { f, calls } = deferredFetch();
+			const c = createClient(f);
+			const ac1 = new AbortController();
+			const ac2 = new AbortController();
+
+			const p1 = c.get('/slow', ac1.signal);
+			const p2 = c.get('/slow', ac2.signal);
+			await Promise.resolve();
+			expect(f).toHaveBeenCalledTimes(1);
+
+			ac1.abort();
+			await expect(p1).rejects.toThrow();
+			expect(calls[0].signal?.aborted).toBe(false);
+
+			calls[0].resolve(reply(200, { ok: 2 }));
+			await expect(p2).resolves.toEqual({ ok: 2 });
+		});
+
+		it('aborts the underlying fetch once all signaled callers abort', async () => {
+			const { f, calls } = deferredFetch();
+			const c = createClient(f);
+			const ac1 = new AbortController();
+			const ac2 = new AbortController();
+
+			const p1 = c.get('/slow', ac1.signal);
+			const p2 = c.get('/slow', ac2.signal);
+			await Promise.resolve();
+			expect(f).toHaveBeenCalledTimes(1);
+
+			ac1.abort();
+			await expect(p1).rejects.toThrow();
+			expect(calls[0].signal?.aborted).toBe(false);
+
+			ac2.abort();
+			await expect(p2).rejects.toThrow();
+			expect(calls[0].signal?.aborted).toBe(true);
+		});
+
+		it('does not abort when an untracked caller shares the read', async () => {
+			const { f, calls } = deferredFetch();
+			const c = createClient(f);
+			const ac = new AbortController();
+
+			const p1 = c.get('/slow');
+			const p2 = c.get('/slow', ac.signal);
+			await Promise.resolve();
+			expect(f).toHaveBeenCalledTimes(1);
+
+			ac.abort();
+			await expect(p2).rejects.toThrow();
+			expect(calls[0].signal?.aborted).toBe(false);
+
+			calls[0].resolve(reply(200, { ok: 'still-here' }));
+			await expect(p1).resolves.toEqual({ ok: 'still-here' });
+		});
+	});
 });

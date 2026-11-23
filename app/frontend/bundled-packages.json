@@ -19,7 +19,7 @@
 	},
 	{
 		"name": "@sveltejs/kit",
-		"version": "3.0.1",
+		"version": "3.4.0",
 		"license": "MIT",
 		"path": "node_modules/@sveltejs/kit"
 	},
@@ -43,7 +43,7 @@
 	},
 	{
 		"name": "rolldown",
-		"version": "1.2.13",
+		"version": "1.2.19",
 		"license": "MIT",
 		"path": "node_modules/rolldown"
 	},
@@ -55,13 +55,13 @@
 	},
 	{
 		"name": "svelte",
-		"version": "5.57.2",
+		"version": "5.59.1",
 		"license": "MIT",
 		"path": "node_modules/svelte"
 	},
 	{
 		"name": "vite",
-		"version": "8.3.4",
+		"version": "8.3.8",
 		"license": "MIT",
 		"path": "node_modules/vite"
 	}

@@ -109,7 +109,7 @@ func (s *Searcher) HandleAlbum(ctx context.Context, r *jobs.Run) error {
 			continue
 		}
 		notOut := t.sl.State == mediafiles.SlotNotOutYet
-		if show || slices.Contains(albumLooking, t.sl.State) || notOut && (hand && !keptOnly || skipGate) {
+		if show || slices.Contains(albumLooking, t.sl.State) || notOut && (hand && !keptOnly || skipGate) || anyTrack && t.sl.State == mediafiles.SlotNeedsADecision {
 			looking = append(looking, t)
 		}
 	}
@@ -118,6 +118,12 @@ func (s *Searcher) HandleAlbum(ctx context.Context, r *jobs.Run) error {
 		result["skipped"] = "no track of " + part.Name + " is looking for a copy"
 		r.SetResult(result)
 		return nil
+	}
+	fromDecision := map[int64]bool{}
+	for _, t := range looking {
+		if t.sl.State == mediafiles.SlotNeedsADecision {
+			fromDecision[t.sl.ID] = true
+		}
 	}
 	// rest puts the tracks this search moved to searching back to where they were. It runs on a Job that was cancelled too, so it ignores the cancellation.
 	rest := func(reason string) {
@@ -133,6 +139,8 @@ func (s *Searcher) HandleAlbum(ctx context.Context, r *jobs.Run) error {
 			switch {
 			case set.notOut[t.sl.ID]:
 				to = mediafiles.SlotNotOutYet
+			case fromDecision[t.sl.ID]:
+				to = mediafiles.SlotNeedsADecision
 			case t.cur != nil || t.sl.State == mediafiles.SlotBetterWanted:
 				to = mediafiles.SlotBetterWanted
 			}
@@ -379,7 +387,7 @@ func (s *Searcher) judgeAlbum(ctx context.Context, set albumSet, all []found, ha
 	for i, f := range all {
 		p := releasename.Parse(f.item.Title, releasename.Hints{Size: f.item.Size, Music: true})
 		rels[i] = mediafiles.ReleaseFacts{Name: f.item.Title, Parse: p, Size: f.item.Size, Protocol: f.item.Protocol, Seeders: f.item.Seeders,
-			PublishedAt: f.item.Published, InfoHash: f.item.InfoHash, SourcePriority: f.src.Priority, Dangerous: bad.has(listingHash(f.item.InfoHash, f.item.Link), f.item.Title)}
+			PublishedAt: f.item.Published, InfoHash: listingHash(f.item.InfoHash, f.item.Link), SourcePriority: f.src.Priority, Dangerous: bad.has(listingHash(f.item.InfoHash, f.item.Link), f.item.Title)}
 		ss := mediafiles.SlotSet{Match: mediafiles.MatchRelease(p, []mediafiles.TitleRef{tref}), MinSeeders: f.src.MinSeeders, HandSearch: hand, Listing: set.listing, SkipGate: skipGate, Out: true,
 			OutSince: outSince, Checks: checks}
 		if ss.Match.Title != nil {
@@ -476,7 +484,7 @@ func (set albumSet) lines(ss *mediafiles.SlotSet, rel mediafiles.ReleaseFacts, f
 		if !isTarget && !(t.kept && slices.Contains(lookingNow, t.sl.State)) {
 			continue
 		}
-		if l := turnedFor(t.sl.ID); slices.Contains(l, rel.Name) || rel.InfoHash != "" && slices.Contains(l, rel.InfoHash) {
+		if l := turnedFor(t.sl.ID); mediafiles.TurnedDownMatch(l, rel.Name, rel.InfoHash) {
 			turnedAll++
 			if isTarget {
 				targetTurned = true

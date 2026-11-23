@@ -106,6 +106,9 @@ func (s *Service) handleModelDownload(ctx context.Context, r *jobs.Run) error {
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err() // the app is stopping: the part file stays for the next start
 	}
+	if err == nil {
+		s.queueAllPendingWork(ctx)
+	}
 	return err
 }
 

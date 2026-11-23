@@ -3,6 +3,15 @@ export { accountWords } from './api.ts';
 export { default as BuiltInModels } from './BuiltInModels.svelte';
 export { default as LanguageWants } from './LanguageWants.svelte';
 export { default as SubtitlePanel } from './SubtitlePanel.svelte';
+export { default as SubtitlesActiveCard } from './SubtitlesActiveCard.svelte';
+export { default as SubtitlesFailedTab } from './SubtitlesFailedTab.svelte';
+export { default as SubtitlesHistoryTab } from './SubtitlesHistoryTab.svelte';
+export { default as SubtitlesIntegrityTab } from './SubtitlesIntegrityTab.svelte';
+export { default as SubtitlesSettingsTab } from './SubtitlesSettingsTab.svelte';
+export { default as SubtitlesStatsBar } from './SubtitlesStatsBar.svelte';
+export { default as SubtitlesWaitingTab } from './SubtitlesWaitingTab.svelte';
+export { activeSubtitles, refreshActiveSubtitles, resetActiveSubtitles, summariseSubtitles, syncActiveSubtitles } from './active.svelte.ts';
+export { fileName } from './api.ts';
 export { jobsDone } from './api.ts';
 export { kindCovers } from './api.ts';
 export { langName } from './api.ts';
@@ -36,5 +45,12 @@ export { madeOf } from './api.ts';
 export { termsBody } from './api.ts';
 export { translatorCanTranslate } from './api.ts';
 export type { Transcriber, TitleTerms, Made } from './api.ts';
-export { doneParts, howWord, jobName, jobShare, jobWord, missingNeedQuery, nextStep, siteUse, siteUseWords, speechState, stepWords, waitingMore, workingCount } from './overview.ts';
-export type { DoneRow, How, Need, NeedRow, Overview, OverviewJob } from './overview.ts';
+export {
+	doneParts, fileBaseName, formatSpeed, formatTimestamp, historyQuery, howWord, integrityIssueWord, jobName,
+	jobPhaseTone, jobPhaseWord, jobShare, jobWord, libraryPercent, missingNeedQuery, nextStep, parseSubtitlesTab,
+	siteUse, siteUseWords, speechState, stepWords, waitingMore, waitingQuery, workingCount
+} from './overview.ts';
+export type {
+	DoneRow, HistoryItem, HistoryStateFilter, How, IntegrityRow, IntegritySummary, JobState, LibraryProgress,
+	Need, NeedRow, Overview, OverviewJob, SpeedStat, SubtitleStats, SubtitlesTab, WaitingJob
+} from './overview.ts';

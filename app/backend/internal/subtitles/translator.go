@@ -13,6 +13,7 @@ import (
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
 	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
+	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/transcribe"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate/builtin"
 )
@@ -145,6 +146,9 @@ func (s *Service) builtIn(t *Translator) (modelFile, error) {
 	m, err := s.modelFor(t.BuiltInModel)
 	if err == nil {
 		t.builtInName = m.Name
+		if cat, ok := builtin.ByID(t.BuiltInModel); ok {
+			t.builtInName, _, _, _, _, _ = resolveCatalogueDisplay(s.ModelsDir, cat, transcribe.UsesOpenVINO(), builtin.UsesOpenVINO(), transcribe.OpenVINOPreferFP16())
+		}
 	}
 	t.builtInReady = t.BuiltInAvailable && err == nil
 	return m, err
@@ -285,24 +289,35 @@ func (s *Service) translatorClient(ctx context.Context) (translate.Client, Trans
 			cards = []string{t.GPU}
 		}
 		devs := s.Devices(ctx)
+		speechPerSlot := speechSlotVRAMMB(s.activeSpeechNeedBytes(ctx))
 		c := &builtin.Client{Name: m.Name, Form: m.Form, HTTP: s.TranslateHTTP}
 		for _, id := range cards {
 			// On a graphics card the model sits in the card's memory and the
 			// runner takes several calls at once, each with a context of its own.
-			memMB := deviceMemoryMB(devs, id)
-			o := cpu
-			o.GPU, o.NeedBytes, o.CacheDir = id, min(o.NeedBytes, gpuNeed), filepath.Join(s.ModelsDir, ".cache")
-			o.Parallel = builtin.GPUParallelFor(memMB, m.NeedBytes)
-			o.Context = builtin.GPUContext
-			o.FlashAttn = !builtin.LlamaNoFlashAttn()
-			o.QuantKV = o.FlashAttn
-			if tightVRAM(memMB) {
-				if match := deviceNumber.FindStringSubmatch(id); match != nil {
-					if cardNum, err := strconv.Atoi(match[1]); err == nil {
+			totalMB := deviceMemoryMB(devs, id)
+			usableMB := usableVRAMMB(totalMB)
+			var extMB, activeSpeech, runningSpeech int
+			if match := deviceNumber.FindStringSubmatch(id); match != nil {
+				if cardNum, err := strconv.Atoi(match[1]); err == nil {
+					extMB = s.externalVRAMMB(ctx, cardNum)
+					activeSpeech = s.speech.activeOnCard(cardNum)
+					runningSpeech = s.speech.runningOnCard(cardNum)
+					if runningSpeech > activeSpeech && needsVRAMRoom(totalMB, translatorEstVRAMMB(m.NeedBytes, 8), extMB+runningSpeech*speechPerSlot) {
 						s.speech.stopIdleCard(cardNum)
+						runningSpeech = s.speech.runningOnCard(cardNum)
 					}
 				}
 			}
+			availMB := 0
+			if totalMB > 0 {
+				availMB = max(usableMB-extMB-max(activeSpeech, runningSpeech)*speechPerSlot, 1024)
+			}
+			o := cpu
+			o.GPU, o.NeedBytes, o.CacheDir = id, min(o.NeedBytes, gpuNeed), filepath.Join(s.ModelsDir, ".cache")
+			o.Parallel = builtin.GPUParallelFor(availMB, m.NeedBytes)
+			o.Context = builtin.GPUContext
+			o.FlashAttn = !builtin.LlamaNoFlashAttn()
+			o.QuantKV = o.FlashAttn
 			c.Targets = append(c.Targets, builtin.Target{Runner: s.Runners.Runner(id), Opts: o})
 		}
 		if len(c.Targets) == 0 {
@@ -336,6 +351,26 @@ func slotsOf(c translate.Client) int {
 	return 1
 }
 
+func translateWorkersFromDevices(devs []builtin.Device) int {
+	if n := len(cardNumbers(GPUAll, devs)); n > 0 {
+		return min(max(n*2, 2), 4)
+	}
+	return 1
+}
+
+// TranslatePoolWorkers returns the job queue worker count for PoolTranslate.
+// It scales with detected GPU cards (2 per card, capped at 4) so built-in GPU
+// translation jobs can keep up to 24 slots fed across MKV extraction, tail
+// waves, retries and SRT saves while keeping llama-server warm; otherwise it
+// returns 1.
+func TranslatePoolWorkers(ctx context.Context, _ *database.Store) int {
+	var devs []builtin.Device
+	if bin, ok := builtin.Find(); ok {
+		devs, _ = builtin.Devices(ctx, bin)
+	}
+	return translateWorkersFromDevices(devs)
+}
+
 // gpuNeed is the least free memory asked for with the model on a graphics
 // card. The runner was seen to hold more than this at its peak, but how much
 // of that the card's driver maps differs from card to card, so the check
@@ -344,6 +379,31 @@ const gpuNeed = 1 << 30
 
 // devicesFor is how long a list of graphics cards is kept.
 const devicesFor = time.Minute
+
+func cloneDevices(d []builtin.Device) []builtin.Device {
+	out := make([]builtin.Device, len(d))
+	copy(out, d)
+	return out
+}
+
+func (s *Service) refreshDevices(bin string) {
+	d, err := builtin.Devices(context.Background(), bin)
+	s.mu.Lock()
+	if err == nil {
+		if d == nil {
+			d = []builtin.Device{}
+		}
+		s.devices = d
+		s.devicesAt = time.Now()
+	} else {
+		if s.devices == nil {
+			s.devices = []builtin.Device{}
+		}
+		s.devicesAt = time.Now()
+	}
+	s.devicesRefreshing = false
+	s.mu.Unlock()
+}
 
 // Devices lists the graphics cards the runner in this image can use; none
 // when there is no runner or the container was given no card.
@@ -355,21 +415,43 @@ func (s *Service) Devices(ctx context.Context) []builtin.Device {
 	if !ok {
 		return []builtin.Device{}
 	}
-	s.mu.Lock()
-	if s.devices != nil && time.Since(s.devicesAt) < devicesFor {
-		d := s.devices
+	for {
+		s.mu.Lock()
+		if s.devices != nil {
+			if time.Since(s.devicesAt) >= devicesFor && !s.devicesRefreshing {
+				s.devicesRefreshing = true
+				go s.refreshDevices(bin)
+			}
+			d := cloneDevices(s.devices)
+			s.mu.Unlock()
+			return d
+		}
+		if wait := s.devicesWait; wait != nil {
+			s.mu.Unlock()
+			select {
+			case <-wait:
+				continue
+			case <-ctx.Done():
+				return []builtin.Device{}
+			}
+		}
+		ch := make(chan struct{})
+		s.devicesWait = ch
 		s.mu.Unlock()
-		return d
+
+		d, err := builtin.Devices(ctx, bin)
+		if err != nil || d == nil {
+			d = []builtin.Device{}
+		}
+		s.mu.Lock()
+		if ctx.Err() == nil {
+			s.devices, s.devicesAt = d, time.Now()
+		}
+		s.devicesWait = nil
+		close(ch)
+		s.mu.Unlock()
+		return cloneDevices(d)
 	}
-	s.mu.Unlock()
-	d, err := builtin.Devices(ctx, bin)
-	if err != nil || d == nil {
-		d = []builtin.Device{}
-	}
-	s.mu.Lock()
-	s.devices, s.devicesAt = d, time.Now()
-	s.mu.Unlock()
-	return d
 }
 
 // chunkFor is how many lines the first calls to tr carry; 0 for the default.

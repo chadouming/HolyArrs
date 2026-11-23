@@ -230,6 +230,11 @@ func PlanEpisodes(cands []Candidate, t ShowTarget) []mediafiles.PlanStep {
 				}
 			}
 			if m.Title == nil {
+				if ap, am, ok := matchSceneAbbrev(filepath.Base(c.Path), releasename.Hints{Size: c.Size, Show: true}, lib, filepath.Base(filepath.Dir(c.Path)), t.ReleaseName); ok {
+					p, m = ap, am
+				}
+			}
+			if m.Title == nil {
 				s.Method, s.Why = "refuse", []string{"does not match the show: " + m.Detail}
 				break
 			}

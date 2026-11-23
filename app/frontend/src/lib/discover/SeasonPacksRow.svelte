@@ -10,9 +10,10 @@
 	const choices = [0, 1, 2, 3, 5];
 	const words = (n: number) => (n === 1 ? t('discover.titleLibrary.packOneAtATime') : n > 0 ? t('discover.titleLibrary.packAtATime', { n }) : t('discover.titleLibrary.packWhole'));
 	const menu = $derived<MenuItem[]>(choices.map((n) => ({ label: words(n), checked: value === n, onselect: () => onpick(n) })));
+	const shown = $derived(busy ? t('discover.titleLibrary.saving') : value ? t('discover.titleLibrary.packShort', { n: value }) : t('discover.titleLibrary.packWhole'));
 </script>
 
 <div class="lib-row static" data-testid="season-packs-row">
 	<span><b>{t('discover.titleLibrary.seasonPacks')}</b><small class="wrap">{t('discover.titleLibrary.packHint')}</small></span>
-	<div class="lib-pick"><Menu label={t('discover.titleLibrary.seasonPacks')} variant="button" items={menu} width={220}>{#snippet trigger()}<span>{busy ? t('discover.titleLibrary.saving') : value ? t('discover.titleLibrary.packShort', { n: value }) : t('discover.titleLibrary.packWhole')}</span><Icon name="chevronDown" size={14} />{/snippet}</Menu></div>
+	<div class="lib-pick"><Menu label={`${t('discover.titleLibrary.seasonPacks')}: ${shown}`} variant="button" items={menu} width={220}>{#snippet trigger()}<span>{shown}</span><Icon name="chevronDown" size={14} />{/snippet}</Menu></div>
 </div>

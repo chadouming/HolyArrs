@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Uit de downloader opgeruimd",
 	"frame.feeds.clearStill": "Nog niet opgeruimd",
 	"frame.error.pageGone": "Deze pagina bestaat niet. De link is misschien oud of verkeerd getypt.",
-	"frame.nav.subtitles": "Ondertitels"
+	"frame.nav.subtitles": "Ondertitels",
+	"frame.nav.transcode": "Transcoderen"
 }

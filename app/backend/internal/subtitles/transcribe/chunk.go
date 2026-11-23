@@ -62,11 +62,16 @@ func runSingleServer(ctx context.Context, o Options, wav, lang, prompt string) (
 	return cues, nil
 }
 
+func chunkCount(seconds float64, slotCount int) int {
+	n := min(max(slotCount*2, int(seconds/180)), int(seconds/90))
+	return min(n, 24)
+}
+
 // runChunked splits wav at quiet speech pauses and transcribes chunks across
 // all slots using a work-stealing queue, then merges cues in strict order.
 func runChunked(ctx context.Context, o Options, dir, wav string, info wavInfo, lang, prompt string) ([]Cue, error) {
 	slots := append([]Slot{{Device: o.Device, Server: o.Server}}, o.ExtraSlots...)
-	numChunks := min(len(slots)*2, int(info.seconds/90))
+	numChunks := chunkCount(info.seconds, len(slots))
 	if numChunks < 2 {
 		return runSingleServer(ctx, o, wav, lang, prompt)
 	}

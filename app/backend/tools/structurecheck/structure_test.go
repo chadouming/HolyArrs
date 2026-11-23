@@ -16,7 +16,7 @@ import (
 )
 
 // Modules are the module packages allowed under internal/, besides core.
-var Modules = []string{"suggest", "importer", "library", "requests", "movies", "shows", "music", "sources", "downloads", "subtitles", "discover",
+var Modules = []string{"suggest", "importer", "library", "requests", "movies", "shows", "music", "sources", "downloads", "subtitles", "transcode", "discover",
 	"mediafiles", "metadata", "mediaservers", "accounts", "alerts", "migrate", "arrapi", "ai", "backups",
 	"health", "updates", "setup", "plugins"}
 

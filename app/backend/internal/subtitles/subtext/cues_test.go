@@ -78,3 +78,73 @@ func FuzzParseCues(f *testing.F) {
 		}
 	})
 }
+
+func TestASSText_StripsVectorDrawingsAndEmptyStyleTags(t *testing.T) {
+	if got := ASSText(`{\p1}m 0 0 l 100 0 b 120 30{\p0}`); got != "" {
+		t.Fatalf("pure drawing = %q, want empty", got)
+	}
+	if got := ASSText(`{\p1}m 0 0 l 100 0{\p0}After sign`); got != "After sign" {
+		t.Fatalf("drawing then text = %q", got)
+	}
+	if got := ASSText(`{\pos(10,20)\an8}Positioned sign`); got != "Positioned sign" {
+		t.Fatalf("pos tag confused with drawing: %q", got)
+	}
+	if got := ASSText(`{\i1\p1}m 0 0{\i0}`); got != "" {
+		t.Fatalf("empty style around drawing = %q, want empty", got)
+	}
+	if got := ASSText(`{\p4}m 0 0\Nl 10 10{\i1}hidden{\p0}Visible`); got != "Visible" {
+		t.Fatalf("scaled drawing = %q", got)
+	}
+}
+
+func TestParseCues_ASSCoalescesMotionTrackedAndSkipsDrawings(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+	// 25,000 motion-tracked 24fps sign frames (42ms each) plus vector drawing frames and layered duplicates.
+	for i := 0; i < 25000; i++ {
+		startMS := i * 42
+		endMS := startMS + 42
+		sb.WriteString("Dialogue: 0," + fmtASSClock(startMS) + "," + fmtASSClock(endMS) + ",Sign,,0,0,0,,{\\pos(100,200)}CHAPTER ONE\n")
+	}
+	// Layered blur/outline duplicate at the same time.
+	sb.WriteString("Dialogue: 1,0:00:00.00,0:00:00.50,Sign,,0,0,0,,{\\blur2}CHAPTER ONE\n")
+	// Vector drawing cue.
+	sb.WriteString("Dialogue: 0,0:01:00.00,0:01:02.00,Draw,,0,0,0,,{\\p1}m 0 0 l 100 100{\\p0}\n")
+	// Genuinely repeated dialogue separated by > 150ms.
+	sb.WriteString("Dialogue: 0,0:20:00.00,0:20:01.00,Default,,0,0,0,,Wait!\n")
+	sb.WriteString("Dialogue: 0,0:20:02.00,0:20:03.00,Default,,0,0,0,,Wait!\n")
+
+	cues, err := ParseCues(sb.String(), ASS)
+	if err != nil {
+		t.Fatalf("ParseCues failed: %v", err)
+	}
+	if len(cues) != 3 {
+		t.Fatalf("got %d cues, want 3: %+v", len(cues), cues)
+	}
+	if cues[0].Text != "CHAPTER ONE" || cues[0].StartMS != 0 || cues[0].EndMS != 25000*42 {
+		t.Fatalf("coalesced cue = %+v", cues[0])
+	}
+	if cues[1].Text != "Wait!" || cues[2].Text != "Wait!" || cues[1].StartMS == cues[2].StartMS {
+		t.Fatalf("repeated dialogue cues = %+v", cues[1:])
+	}
+}
+
+func fmtASSClock(ms int) string {
+	cs := (ms / 10) % 100
+	s := (ms / 1000) % 60
+	m := (ms / 60000) % 60
+	h := ms / 3600000
+	return strings.Join([]string{
+		string(rune('0' + h)),
+		":",
+		twoDigits(m),
+		":",
+		twoDigits(s),
+		".",
+		twoDigits(cs),
+	}, "")
+}
+
+func twoDigits(n int) string {
+	return string([]byte{byte('0' + n/10), byte('0' + n%10)})
+}

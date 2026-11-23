@@ -222,13 +222,24 @@ describe('album or season card', () => {
 	});
 });
 
-describe('Import again when no file matched', () => {
-	it('is offered in the menu and Import files by hand still leads', () => {
+describe('Import again when no file matched or import refused', () => {
+	it('is offered in the menu for conflicts/refusals and Import files by hand still leads', () => {
 		const d = { kind: 'show', why: 'ran_out', download_id: 7, import_folder: '/dl/x', reason: 'no file in the download matched an episode; match the files by hand' } as Parameters<typeof mayImportAgain>[0];
 		expect(mayImportAgain(d)).toBe(true);
 		expect(canImportAgain(d)).toBe(false);
 		expect(decisionFix(d)).toBe('match');
+		for (const conflict of [
+			{ ...d, reason: 'nothing could be placed' },
+			dec({ ...d, why: 'conflict', reason: 'the file for S01E09 could not be placed: Tokyo Ghoul; holds S01E09; a sample, not the full video (it plays 60 seconds)' }),
+			dec({ ...d, why: 'conflict', reason: 'a file with the same name that HolyArrs did not place is already in the folder; move it out of the folder, then import again' }),
+			dec({ ...d, why: 'ran_out', reason: 'HolyArrs refused Show.S01E01.mkv: the Downloader reported a file outside the download folder.' })
+		]) {
+			expect(mayImportAgain(conflict)).toBe(true);
+			expect(canImportAgain(conflict)).toBe(false);
+		}
 		expect(mayImportAgain({ ...d, download_id: undefined })).toBe(false);
-		expect(mayImportAgain({ ...d, reason: 'nothing could be placed' })).toBe(false);
+		expect(mayImportAgain({ ...d, import_folder: undefined, why: 'conflict', reason: 'nothing could be placed' })).toBe(false);
+		expect(mayImportAgain({ ...d, why: 'conflict', reason: 'edition is unknown; confirm the edition or choose an unconstrained Version' })).toBe(false);
+		expect(mayImportAgain({ ...d, why: 'ran_out', reason: 'no other Release passed the Pick rules' })).toBe(false);
 	});
 });

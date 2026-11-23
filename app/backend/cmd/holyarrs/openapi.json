@@ -17302,6 +17302,43 @@
         "x-holyarrs-scope": "write"
       }
     },
+    "/api/v1/files/{id}/subtitles/skip": {
+      "post": {
+        "description": "Marks matching open subtitle wishes for the file as skipped and drops matching queued subtitle jobs.",
+        "operationId": "skipFileSubtitles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching open wishes marked skipped."
+          },
+          "400": {
+            "description": "Unknown language or invalid JSON."
+          },
+          "404": {
+            "description": "File not found."
+          },
+          "409": {
+            "description": "File is not a present main movie or episode video."
+          }
+        },
+        "summary": "Skip subtitle wishes for a file",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
     "/api/v1/files/{id}/subtitles/transcribe": {
       "post": {
         "description": "Queues a job that writes a subtitle from the File's audio. Refused when the File already has a text subtitle or the transcriber is not ready.",
@@ -17450,6 +17487,74 @@
           "Subtitles"
         ],
         "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/files/{id}/transcode": {
+      "post": {
+        "description": "Enqueues a transcode_file job for a movie or episode file. Pass force=true to bypass skip rules and folder disablement.",
+        "operationId": "queueFileTranscode",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Transcode queued."
+          },
+          "404": {
+            "description": "File not found."
+          },
+          "409": {
+            "description": "Folder disabled without force, not a main video, or already queued."
+          }
+        },
+        "summary": "Queue one library file for transcoding",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/files/{id}/transcode/skip": {
+      "post": {
+        "description": "Drops any queued transcode job for the file and marks it skipped by the user.",
+        "operationId": "skipFileTranscode",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File marked skipped."
+          },
+          "404": {
+            "description": "File not found."
+          },
+          "409": {
+            "description": "Not a present main movie or episode video."
+          }
+        },
+        "summary": "Skip transcoding for one library file",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
         "x-holyarrs-permission": "manage_library",
         "x-holyarrs-scope": "write"
       }
@@ -28670,6 +28775,299 @@
         "x-holyarrs-scope": "write"
       }
     },
+    "/api/v1/subtitles/failed": {
+      "get": {
+        "description": "Lists failed and cancelled subtitle jobs with counts for each state; filter by state (all, failed, or cancelled), limit, and offset.",
+        "operationId": "listFailedSubtitleJobs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "enum": [
+                "all",
+                "failed",
+                "cancelled"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Failed and cancelled subtitle jobs, total, and state counts."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Invalid state filter."
+          }
+        },
+        "summary": "List failed and cancelled subtitle jobs",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/subtitles/history": {
+      "get": {
+        "description": "Lists paginated completed and user-skipped subtitle history entries, newest first, with optional state and search filters.",
+        "operationId": "listSubtitleHistory",
+        "responses": {
+          "200": {
+            "description": "Paginated subtitle history items and counts."
+          },
+          "400": {
+            "description": "Invalid state filter."
+          }
+        },
+        "summary": "List subtitle history",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/subtitles/integrity": {
+      "get": {
+        "description": "Returns the integrity summary across beside subtitles and a paginated list of subtitles flagged with an issue.",
+        "operationId": "getSubtitleIntegrity",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The integrity summary, flagged subtitle issues, and total count."
+          }
+        },
+        "summary": "Read subtitle integrity status",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/subtitles/jobs/retry-failed": {
+      "post": {
+        "description": "Clears any transcript or wish hold and requeues all failed subtitle jobs.",
+        "operationId": "retryFailedSubtitleJobs",
+        "responses": {
+          "200": {
+            "description": "Counts of retried and skipped jobs."
+          }
+        },
+        "summary": "Retry all failed subtitle jobs",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/subtitles/jobs/{id}/bump": {
+      "post": {
+        "description": "Promotes a queued subtitle job to the front of the execution queue with priority now.",
+        "operationId": "bumpSubtitleJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job promoted."
+          },
+          "404": {
+            "description": "Job not found."
+          },
+          "409": {
+            "description": "Job is not queued."
+          }
+        },
+        "summary": "Bump a queued subtitle job",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/subtitles/jobs/{id}/retry": {
+      "post": {
+        "description": "Clears any transcript or wish hold on a failed or cancelled subtitle job and puts it back in the queue.",
+        "operationId": "retrySubtitleJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requeued job id and state."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such subtitle job."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Job cannot be retried or a matching job is already queued."
+          }
+        },
+        "summary": "Retry a subtitle job",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/subtitles/jobs/{id}/skip": {
+      "post": {
+        "description": "Drops a queued subtitle job and marks its matching open wish rows as skipped.",
+        "operationId": "skipSubtitleJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job skipped."
+          },
+          "404": {
+            "description": "Job not found."
+          },
+          "409": {
+            "description": "Job is not queued."
+          }
+        },
+        "summary": "Skip a queued subtitle job",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/subtitles/jobs/{id}/stop": {
+      "post": {
+        "description": "Cancels a queued, running, or orphaned running subtitle job.",
+        "operationId": "stopSubtitleJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stopped job id and cancelled state."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such subtitle job."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Job cannot be cancelled in its current state."
+          }
+        },
+        "summary": "Stop a subtitle job",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
     "/api/v1/subtitles/languages": {
       "get": {
         "description": "Two-letter codes and English names.",
@@ -29061,6 +29459,138 @@
           }
         },
         "summary": "Search subtitles",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/subtitles/verify": {
+      "post": {
+        "description": "Queues a job that inspects every present beside subtitle (except accepted ones) for corruption, truncation, or duration mismatch.",
+        "operationId": "verifySubtitles",
+        "responses": {
+          "202": {
+            "description": "Verification job queued."
+          }
+        },
+        "summary": "Verify library subtitle integrity",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/subtitles/waiting": {
+      "get": {
+        "description": "Lists queued subtitle jobs in execution order with queue position, file metadata, and language info.",
+        "operationId": "listWaitingSubtitleJobs",
+        "responses": {
+          "200": {
+            "description": "Paginated waiting subtitle jobs."
+          }
+        },
+        "summary": "List waiting subtitle jobs",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/subtitles/{id}/keep": {
+      "post": {
+        "description": "Marks a flagged beside subtitle as accepted so future integrity checks skip it.",
+        "operationId": "keepSubtitle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subtitle marked as accepted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such subtitle."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a subtitle beside the video."
+          }
+        },
+        "summary": "Accept a flagged subtitle",
+        "tags": [
+          "Subtitles"
+        ],
+        "x-holyarrs-part": "subtitles",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/subtitles/{id}/replace": {
+      "post": {
+        "description": "Moves a flagged beside subtitle to the holding folder, marks it replaced, turns down its site candidate if fetched from a site, and queues a fresh subtitle search.",
+        "operationId": "replaceSubtitle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Corrupt subtitle replaced and search queued."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such subtitle."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a subtitle beside the video."
+          }
+        },
+        "summary": "Replace a flagged subtitle",
         "tags": [
           "Subtitles"
         ],
@@ -32273,6 +32803,460 @@
         ],
         "x-holyarrs-part": "media",
         "x-holyarrs-permission": "signed_in",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/transcode/failed": {
+      "get": {
+        "description": "Returns paginated failed and cancelled transcode_file and transcode_scan jobs along with state counts.",
+        "operationId": "listFailedTranscodeJobs",
+        "responses": {
+          "200": {
+            "description": "Failed and cancelled transcode jobs."
+          }
+        },
+        "summary": "List failed or cancelled transcode jobs",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/transcode/hardware": {
+      "get": {
+        "description": "Inspects available FFmpeg encoders, tonemapping filters, libvmaf availability, and all readable /dev/dri/renderD* devices.",
+        "operationId": "getTranscodeHardware",
+        "responses": {
+          "200": {
+            "description": "Hardware probe results."
+          }
+        },
+        "summary": "Probe FFmpeg, FFprobe, VMAF, encoders, and GPU render nodes",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/transcode/items": {
+      "get": {
+        "description": "Filters present movie and episode files by transcode state, codec, or search text with pagination.",
+        "operationId": "listTranscodeItems",
+        "responses": {
+          "200": {
+            "description": "Paginated transcode item list."
+          }
+        },
+        "summary": "List library video files with transcode state and metrics",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/transcode/jobs/retry-failed": {
+      "post": {
+        "description": "Re-queues failed transcode_file and transcode_scan jobs.",
+        "operationId": "retryAllFailedTranscodeJobs",
+        "responses": {
+          "200": {
+            "description": "Retry counts."
+          }
+        },
+        "summary": "Retry all failed transcode jobs",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/jobs/{id}/bump": {
+      "post": {
+        "description": "Promotes a queued transcode job to priority now ahead of other waiting jobs.",
+        "operationId": "bumpTranscodeJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job promoted."
+          },
+          "404": {
+            "description": "Job not found."
+          },
+          "409": {
+            "description": "Job is not queued."
+          }
+        },
+        "summary": "Bump a queued transcode job to the front",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/jobs/{id}/retry": {
+      "post": {
+        "description": "Clears item error state and re-queues a failed or cancelled transcode job.",
+        "operationId": "retryTranscodeJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job re-queued."
+          },
+          "404": {
+            "description": "Job not found."
+          }
+        },
+        "summary": "Retry a failed or cancelled transcode job",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/jobs/{id}/skip": {
+      "post": {
+        "description": "Drops a queued transcode job cleanly without creating a failed record and marks its file skipped by the user.",
+        "operationId": "skipTranscodeJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Queued job skipped."
+          },
+          "404": {
+            "description": "Job not found."
+          },
+          "409": {
+            "description": "Job is not queued."
+          }
+        },
+        "summary": "Skip a queued transcode job",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/jobs/{id}/stop": {
+      "post": {
+        "description": "Cancels a queued or running transcode job.",
+        "operationId": "stopTranscodeJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job cancelled."
+          },
+          "404": {
+            "description": "Job not found."
+          }
+        },
+        "summary": "Stop a queued or running transcode job",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/library-folders/{id}": {
+      "put": {
+        "description": "Enables or disables transcoding for a movie or show library folder and assigns its target transcode profile.",
+        "operationId": "putTranscodeLibraryFolder",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated library assignment."
+          },
+          "404": {
+            "description": "Library folder or profile not found."
+          }
+        },
+        "summary": "Assign transcode enablement and profile for a library folder",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/overview": {
+      "get": {
+        "description": "Returns hardware readiness, all readable render nodes with selection state, library conversion coverage, byte savings, live and historical speed, and active queued or running transcode jobs.",
+        "operationId": "getTranscodeOverview",
+        "responses": {
+          "200": {
+            "description": "Transcode overview."
+          }
+        },
+        "summary": "Read Transcode overview counts, GPUs, savings, speed, and active jobs",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      }
+    },
+    "/api/v1/transcode/pause": {
+      "put": {
+        "description": "Holds queued transcode_file jobs in the queue or resumes claiming them; persists across restarts.",
+        "operationId": "putTranscodePause",
+        "responses": {
+          "200": {
+            "description": "Updated pause state."
+          }
+        },
+        "summary": "Pause or resume transcode worker jobs",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/profiles": {
+      "get": {
+        "description": "Returns all configured transcode profiles and every movie/show library folder with its enabled state and assigned profile.",
+        "operationId": "listTranscodeProfiles",
+        "responses": {
+          "200": {
+            "description": "Profiles and library folder assignments."
+          }
+        },
+        "summary": "List transcode profiles and library folder assignments",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      },
+      "post": {
+        "description": "Creates a new named transcode profile with target codec, scaling, HDR, VMAF, and audio/subtitle rules.",
+        "operationId": "createTranscodeProfile",
+        "responses": {
+          "201": {
+            "description": "Created profile."
+          }
+        },
+        "summary": "Create a transcode profile",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/profiles/{id}": {
+      "delete": {
+        "description": "Deletes a transcode profile unless it is the only profile or currently marked default.",
+        "operationId": "deleteTranscodeProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile deleted."
+          },
+          "404": {
+            "description": "Profile not found."
+          },
+          "409": {
+            "description": "Cannot delete default or only profile."
+          }
+        },
+        "summary": "Delete a non-default transcode profile",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "write"
+      },
+      "put": {
+        "description": "Updates an existing transcode profile and optionally marks it as the default profile.",
+        "operationId": "updateTranscodeProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated profile."
+          },
+          "404": {
+            "description": "Profile not found."
+          }
+        },
+        "summary": "Update a transcode profile",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/queue-all": {
+      "post": {
+        "description": "Enqueues transcode_file jobs for pending files in enabled library folders.",
+        "operationId": "queueAllTranscodeItems",
+        "responses": {
+          "202": {
+            "description": "Pending files queued."
+          }
+        },
+        "summary": "Queue pending library files for transcoding",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/scan": {
+      "post": {
+        "description": "Queues a background transcode_scan job that probes library files and skips already converted or disabled folders.",
+        "operationId": "scanTranscodeLibrary",
+        "responses": {
+          "202": {
+            "description": "Scan queued."
+          }
+        },
+        "summary": "Scan library files with ffprobe and optionally queue pending items",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/settings": {
+      "get": {
+        "description": "Returns transcode concurrency, selected_gpus, encoder preferences, VMAF settings, and path/audio/subtitle defaults.",
+        "operationId": "getTranscodeSettings",
+        "responses": {
+          "200": {
+            "description": "Current transcode settings."
+          }
+        },
+        "summary": "Read global transcode pipeline and GPU selection settings",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
+        "x-holyarrs-scope": "read"
+      },
+      "put": {
+        "description": "Validates and saves global transcode settings and syncs the default profile configuration.",
+        "operationId": "putTranscodeSettings",
+        "responses": {
+          "200": {
+            "description": "Saved transcode settings."
+          }
+        },
+        "summary": "Save global transcode pipeline and GPU selection settings",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "settings",
+        "x-holyarrs-scope": "write"
+      }
+    },
+    "/api/v1/transcode/waiting": {
+      "get": {
+        "description": "Lists queued transcode jobs in execution order with queue position, file metadata, and profile info.",
+        "operationId": "listTranscodeWaiting",
+        "responses": {
+          "200": {
+            "description": "Paginated waiting transcode jobs."
+          }
+        },
+        "summary": "List queued transcode jobs in execution order",
+        "tags": [
+          "Transcode"
+        ],
+        "x-holyarrs-part": "media",
+        "x-holyarrs-permission": "manage_library",
         "x-holyarrs-scope": "read"
       }
     },

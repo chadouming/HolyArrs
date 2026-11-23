@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "נוקתה מהמוריד",
 	"frame.feeds.clearStill": "עדיין לא נוקתה",
 	"frame.error.pageGone": "הדף הזה לא קיים. ייתכן שהקישור ישן או שגוי.",
-	"frame.nav.subtitles": "כתוביות"
+	"frame.nav.subtitles": "כתוביות",
+	"frame.nav.transcode": "קידוד מחדש"
 }

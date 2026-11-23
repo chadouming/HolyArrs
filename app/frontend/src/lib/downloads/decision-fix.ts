@@ -35,9 +35,14 @@ export function canImportAgain(d: D): boolean {
 // No file matched: the same download can also be imported again from the menu (its archives are unpacked again); Import files by hand still leads.
 const noMatchAgain = (r: string) => /^\s*no file in the download matched (this movie|an episode|a track); match the files by hand\.?\s*$/i.test(r);
 
-// Import again is offered: as the lead fix (canImportAgain) or, when no file matched, in the menu.
+// Import again is offered: as the lead fix (canImportAgain) or, for retryable conflicts/refusals and no-match cards, in the menu.
 export function mayImportAgain(d: D): boolean {
-	return canImportAgain(d) || (!!d.download_id && noMatchAgain(d.reason ?? ''));
+	const r = d.reason ?? '';
+	return (
+		canImportAgain(d) ||
+		(!!d.download_id && noMatchAgain(r)) ||
+		(!!d.download_id && !!d.import_folder && !editionRefusal(r) && (d.why === 'conflict' || placingFailed(r) || refusedOutside(r) || noMatchKind(r) !== '' || /then import again/i.test(r)))
+	);
 }
 
 // Every file of one download waits on the same reason Import again answers: one press imports the whole download again.

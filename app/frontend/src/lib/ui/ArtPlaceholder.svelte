@@ -24,7 +24,7 @@
 </script>
 
 <span class="aph {shape}" class:inline class:loading class:tinted={!!ink} class:ink-dark={ink === 'dark'} class:ink-light={ink === 'light'} style:--h={hue} style:--c={ink ? color : undefined} style:width={inline ? size : undefined} aria-hidden="true" data-testid="art-placeholder">
-	{#if text}<span class="t" class:long={text.length > 2}>{text}</span>{/if}
+	{#if text}<span class="t" class:long={text.length > 2} data-text={text}></span>{/if}
 </span>
 
 <style>
@@ -43,6 +43,7 @@
 	.aph.inline.poster { aspect-ratio: 2 / 3; }
 	.aph.inline.wide { aspect-ratio: 16 / 9; }
 	.t { font: 700 clamp(12px, 30cqmin, 64px) / 1 var(--font-ui); letter-spacing: .02em; opacity: .92; }
+	.t::before { content: attr(data-text); }
 	.t.long { font-size: clamp(11px, 20cqmin, 44px); }
 	/* Soft sweep shows the art is still loading. */
 	.loading::after {

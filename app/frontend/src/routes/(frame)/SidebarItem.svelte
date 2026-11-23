@@ -66,7 +66,7 @@
 {#snippet body()}
 	<span class="ic">
 		{#if ring !== undefined}<svg class="ring" viewBox="0 0 28 28" aria-hidden="true" data-testid="nav-ring"><circle class="track" cx="14" cy="14" r="12" /><circle class="arc" cx="14" cy="14" r="12" pathLength="100" stroke-dasharray="{Math.min(Math.max(ring, 0), 100)} 100" /></svg>{/if}
-		<Icon name={icon} size={19} />
+		<Icon name={icon} size={ring !== undefined ? 15 : 19} />
 	</span>
 	<span class="label">{label}</span>
 	{#if kbd}<kbd class="label" aria-hidden="true">{kbd}</kbd>{/if}
@@ -96,8 +96,8 @@
 	}
 	.ui-sbi:hover:not(.current) { background: color-mix(in srgb, var(--surface-3) 70%, transparent); }
 	.ui-sbi:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
-	.ic { position: relative; flex: none; width: 24px; display: grid; place-items: center; color: var(--text-muted); transition: color var(--dur-fast) var(--ease-out); }
-	.ring { position: absolute; inset: -2px; width: 28px; height: 28px; transform: rotate(-90deg); fill: none; stroke-width: 2; pointer-events: none; }
+	.ic { position: relative; flex: none; width: 24px; height: 24px; display: grid; place-items: center; color: var(--text-muted); transition: color var(--dur-fast) var(--ease-out); }
+	.ring { position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; transform: translate(-50%, -50%) rotate(-90deg); fill: none; stroke-width: 2; pointer-events: none; }
 	.ring .track { stroke: var(--line); }
 	.ring .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray var(--dur) var(--ease-out); }
 	@media (prefers-reduced-motion: reduce) { .ring .arc { transition: none; } }
@@ -107,6 +107,7 @@
 	kbd.label { flex: none; color: var(--text-muted); font: var(--t-footnote); }
 	.count { min-width: 22px; box-shadow: inset 0 0 0 1px var(--line); height: 20px; padding: 0 7px; display: grid; place-items: center; flex: none; border-radius: 999px; background: var(--surface-3); color: var(--text); font: 600 12px/1 var(--font-ui); font-variant-numeric: tabular-nums; transition: opacity var(--dur-fast) var(--ease-out); }
 	.flag { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--fail); }
+	:global(.ui-sidebar.collapsed) .ui-sbi { padding-inline: 14px; }
 	:global(.ui-sidebar.collapsed) .ui-sbi .flag { position: absolute; top: 6px; inset-inline-end: 8px; }
 	:global(.ui-sidebar.collapsed) .ui-sbi .label { opacity: 0; }
 	:global(.ui-sidebar.collapsed) .ui-sbi .count { position: absolute; top: 1px; inset-inline: auto 1px; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; background: var(--accent-fill); color: var(--text-on-red); }

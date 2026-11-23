@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
@@ -20,10 +21,12 @@ import (
 // Register adds the subtitle Job kinds to q and lets the Service use the
 // queue to schedule later work.
 func (s *Service) Register(q *jobs.Queue) {
+	s.Jobs = q
 	q.Handle(KindSearch, s.handleSearch)
 	q.Handle(KindMissing, s.handleMissing)
 	q.Handle(KindBetter, s.handleBetter)
 	q.Handle(KindLook, s.handleLook)
+	q.Handle(KindVerify, s.handleVerify)
 	q.Handle(KindTranslate, s.handleTranslate)
 	q.Handle(KindModelDownload, s.handleModelDownload)
 	q.Handle(KindTranscribe, s.handleTranscribe)
@@ -53,6 +56,11 @@ func (s *Service) handleSearch(ctx context.Context, r *jobs.Run) error {
 		s.holdWithVideo(ctx, int64(old), r.Job.Subject.ID, jobActor(r))
 	}
 	better, _ := r.Job.Params["better"].(bool)
+	byHand, _ := r.Job.Params["by_hand"].(bool)
+	if !better && !byHand && s.isProtectedFromSiteRetry(ctx, r.Job.Subject.ID) {
+		r.SetResult(map[string]any{"skipped": "protected in speech/translate line"})
+		return nil
+	}
 	days := 0
 	if d, ok := r.Job.Params["better_days"].(float64); ok {
 		days = int(d)
@@ -79,6 +87,7 @@ func (s *Service) handleMissing(ctx context.Context, r *jobs.Run) error {
 	if err := s.dropRemoved(ctx); err != nil {
 		return err
 	}
+	spQ, trQ := s.queueAllPendingWork(ctx)
 	ids, err := s.dueFiles(ctx, set.Batch)
 	if err != nil {
 		return err
@@ -88,12 +97,12 @@ func (s *Service) handleMissing(ctx context.Context, r *jobs.Run) error {
 			return err
 		}
 	}
-	r.SetResult(map[string]any{"queued": len(ids)})
+	r.SetResult(map[string]any{"queued": len(ids), "transcribe_queued": spQ, "translate_queued": trQ})
 	return nil
 }
 
 // onRemoved matches the subtitles rows of Files whose title was removed.
-const onRemoved = `file_id IN (SELECT f.id FROM files f JOIN slots sl ON sl.id = json_extract(f.slot_ids, '$[0]')
+const onRemoved = `file_id IN (SELECT f.id FROM files f JOIN slots sl ON sl.id = (SELECT MIN(id) FROM slots WHERE file_id = f.id)
 		JOIN items i ON i.id = sl.item_id JOIN titles t ON t.id = i.title_id WHERE t.state = 'removed')`
 
 // dropRemoved clears the pending wishes and looks of Files whose title was
@@ -110,14 +119,21 @@ func (s *Service) dropRemoved(ctx context.Context) error {
 
 func (s *Service) dueFiles(ctx context.Context, batch int) ([]int64, error) {
 	db := s.Store.Read()
+	protected := s.protectedWorkFileIDs(ctx)
 	var out []int64
-	seen := map[int64]bool{}
+	seen := make(map[int64]bool, len(protected)+batch)
+	for id := range protected {
+		seen[id] = true
+	}
 	rows, err := db.QueryContext(ctx, `SELECT DISTINCT file_id FROM subtitles WHERE place = 'wish' AND state IN ('wanted', 'none_good_enough')
-		AND (next_try_at IS NULL OR next_try_at <= ?) ORDER BY next_try_at IS NOT NULL, next_try_at LIMIT ?`, database.FormatTime(now()), batch)
+		AND (next_try_at IS NULL OR next_try_at <= ?) ORDER BY next_try_at IS NOT NULL, next_try_at`, database.FormatTime(now()))
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
+		if len(out) >= batch {
+			break
+		}
 		var id int64
 		if rows.Scan(&id) == nil && !seen[id] {
 			seen[id] = true
@@ -136,8 +152,8 @@ func (s *Service) dueFiles(ctx context.Context, batch int) ([]int64, error) {
 func (s *Service) staleFiles(ctx context.Context, limit int, out []int64, seen map[int64]bool) ([]int64, error) {
 	db := s.Store.Read()
 	// Files never looked at, or looked at under another wish.
-	rows, err := db.QueryContext(ctx, `SELECT DISTINCT f.id, i.title_id, f.version_id, i.id, l.wish FROM files f
-		JOIN slots s ON s.file_id = f.id JOIN items i ON i.id = s.item_id
+	rows, err := db.QueryContext(ctx, `SELECT f.id, i.title_id, f.version_id, i.id, l.wish FROM files f
+		JOIN slots s ON s.id = (SELECT MIN(id) FROM slots WHERE file_id = f.id) JOIN items i ON i.id = s.item_id
 		JOIN titles t ON t.id = i.title_id LEFT JOIN subtitle_looks l ON l.file_id = f.id
 		WHERE f.role = 'main' AND f.state = 'present' AND t.state != 'removed' AND i.kind IN ('movie', 'episode') ORDER BY l.looked_at IS NOT NULL, l.looked_at, f.id`)
 	if err != nil {
@@ -155,6 +171,46 @@ func (s *Service) staleFiles(ctx context.Context, limit int, out []int64, seen m
 		}
 	}
 	rows.Close()
+	if len(cs) == 0 || len(out) >= limit {
+		return out, nil
+	}
+
+	defWants := nonNil(ReadSettings(ctx, db).Languages)
+	defJSONBytes, _ := json.Marshal(defWants)
+	defJSON := string(defJSONBytes)
+
+	wishes, err := database.Select[Wish](ctx, db, "subtitle_wishes", "")
+	if err != nil {
+		return nil, err
+	}
+	byItem := make(map[int64]string)
+	byVersion := make(map[int64]string)
+	byTitle := make(map[int64]string)
+	for _, w := range wishes {
+		ws := nonNil(w.Languages)
+		if len(ws) == 0 {
+			switch {
+			case w.ItemID != nil:
+				byItem[*w.ItemID] = ""
+			case w.VersionID != nil:
+				byVersion[*w.VersionID] = ""
+			default:
+				byTitle[w.TitleID] = ""
+			}
+			continue
+		}
+		b, _ := json.Marshal(ws)
+		s := string(b)
+		switch {
+		case w.ItemID != nil:
+			byItem[*w.ItemID] = s
+		case w.VersionID != nil:
+			byVersion[*w.VersionID] = s
+		default:
+			byTitle[w.TitleID] = s
+		}
+	}
+
 	for _, c := range cs {
 		if len(out) >= limit {
 			break
@@ -162,12 +218,20 @@ func (s *Service) staleFiles(ctx context.Context, limit int, out []int64, seen m
 		if seen[c.file] {
 			continue
 		}
-		w, err := WishFor(ctx, db, c.title, c.version, c.item)
-		if err != nil || len(w.Wants) == 0 {
+		var wantJSON string
+		if s, ok := byItem[c.item]; ok {
+			wantJSON = s
+		} else if s, ok := byVersion[c.version]; ok {
+			wantJSON = s
+		} else if s, ok := byTitle[c.title]; ok {
+			wantJSON = s
+		} else if len(defWants) > 0 {
+			wantJSON = defJSON
+		}
+		if wantJSON == "" {
 			continue
 		}
-		b, _ := json.Marshal(w.Wants)
-		if c.wish.Valid && c.wish.String == string(b) {
+		if c.wish.Valid && c.wish.String == wantJSON {
 			continue
 		}
 		seen[c.file] = true
@@ -204,6 +268,7 @@ func (s *Service) handleLook(ctx context.Context, r *jobs.Run) error {
 			_ = r.Progress(ctx, float64(i+1)/float64(len(ids)), fmt.Sprintf("Looked at %d of %d files", i+1, len(ids)))
 		}
 	}
+	s.queueAllPendingWork(ctx)
 	r.SetResult(map[string]any{"looked": len(ids) - failed, "failed": failed})
 	if len(ids) == lookBatch && failed < len(ids) {
 		// Files remain, so the next Job carries on from here.
@@ -383,51 +448,12 @@ func (s *Service) holdWithVideo(ctx context.Context, oldFileID, newFileID int64,
 	}
 }
 
-// MissingRow is one entry in the missing subtitles list.
-type MissingRow struct {
-	FileID    int64      `json:"file_id"`
-	ItemID    int64      `json:"item_id"`
-	TitleID   int64      `json:"title_id"`
-	Title     string     `json:"title"`
-	Kind      string     `json:"kind"`
-	Season    *int       `json:"season,omitempty"`
-	Episode   *int       `json:"episode,omitempty"`
-	Language  string     `json:"language"`
-	Forced    bool       `json:"forced"`
-	HI        bool       `json:"hearing_impaired"`
-	State     string     `json:"state"`
-	Tries     int        `json:"tries"`
-	NextTryAt *time.Time `json:"next_try_at,omitempty"`
-	// HasText says the File has a subtitle that can be read, in any language:
-	// one to translate from. Without one, only speech to text can make one.
-	HasText bool `json:"has_text"`
-	// Speech is how the File's last try at a subtitle from its audio ended
-	// when nothing was saved: failed (tried again later) or final.
-	Speech       string `json:"speech,omitempty"`
-	SpeechReason string `json:"speech_reason,omitempty"`
-}
-
-// What a File with a missing subtitle needs, for MissingFilter.Need.
-const (
-	NeedSpeech = "speech" // no subtitle that can be read: speech to text
-	NeedText   = "text"   // a subtitle in another language is there
-)
-
 // textHere is true for a missing row whose File has a present subtitle that
 // can be read: a text file beside the video, or a text track inside it. It
 // names what textFormat and container.TextCodec accept.
 const textHere = `EXISTS (SELECT 1 FROM subtitles x WHERE x.file_id = s.file_id AND x.state = 'present' AND (
 		(x.place = 'beside' AND (lower(x.relative_path) LIKE '%.srt' OR lower(x.relative_path) LIKE '%.vtt' OR lower(x.relative_path) LIKE '%.ass' OR lower(x.relative_path) LIKE '%.ssa'))
 		OR (x.place = 'built_in' AND upper(COALESCE(x.codec, '')) IN ('S_TEXT/UTF8', 'S_TEXT/ASCII', 'S_TEXT/ASS', 'S_TEXT/SSA', 'S_ASS', 'S_SSA', 'S_TEXT/WEBVTT'))))`
-
-// MissingCounts sums up the missing list for the Subtitles page.
-type MissingCounts struct {
-	Missing      int `json:"missing"`       // wanted subtitles that are not there
-	Files        int `json:"files"`         // Files missing at least one
-	NeedSpeech   int `json:"need_speech"`   // of those, Files with no subtitle that can be read
-	CanTranslate int `json:"can_translate"` // missing subtitles on Files that have one in another language
-	SpeechHeld   int `json:"speech_held"`   // Files whose subtitle from the audio will not be tried by itself
-}
 
 func missingCounts(ctx context.Context, db *sql.DB) (MissingCounts, error) {
 	var c MissingCounts
@@ -441,69 +467,36 @@ func missingCounts(ctx context.Context, db *sql.DB) (MissingCounts, error) {
 	return c, err
 }
 
-// MissingFilter narrows the missing subtitles list. An empty field matches all.
-type MissingFilter struct {
-	Language string // two-letter language code
-	Kind     string // movie or episode
-	TitleID  int64  // limits the list to one movie or show
-	Need     string // NeedSpeech or NeedText
-}
-
-const missingFrom = ` FROM subtitles s JOIN files f ON f.id = s.file_id JOIN slots sl ON sl.id = json_extract(f.slot_ids, '$[0]')
+const missingFrom = ` FROM subtitles s JOIN files f ON f.id = s.file_id JOIN slots sl ON sl.id = (SELECT MIN(id) FROM slots WHERE file_id = f.id)
 		JOIN items i ON i.id = sl.item_id JOIN titles t ON t.id = i.title_id WHERE s.place = 'wish' AND s.state IN ('wanted', 'none_good_enough') AND f.state = 'present' AND t.state != 'removed'`
 
-// How a saved subtitle was made, for DoneRow.How.
-const (
-	HowDownloaded = "downloaded" // from a subtitle site
-	HowTranslated = "translated" // by HolyArrs's translator
-	HowSpeech     = "speech"     // from the video's audio
-)
+const skippedFrom = ` FROM subtitles s JOIN files f ON f.id = s.file_id JOIN slots sl ON sl.id = (SELECT MIN(id) FROM slots WHERE file_id = f.id)
+		JOIN items i ON i.id = sl.item_id JOIN titles t ON t.id = i.title_id WHERE s.place = 'wish' AND s.state = 'skipped' AND f.state = 'present' AND t.state != 'removed'`
 
-// DoneRow is one subtitle HolyArrs saved beside a video.
-type DoneRow struct {
-	ID       int64     `json:"id"`
-	FileID   int64     `json:"file_id"`
-	TitleID  int64     `json:"title_id"`
-	Title    string    `json:"title"`
-	Kind     string    `json:"kind"`
-	Season   *int      `json:"season,omitempty"`
-	Episode  *int      `json:"episode,omitempty"`
-	Language string    `json:"language"`
-	Forced   bool      `json:"forced"`
-	HI       bool      `json:"hearing_impaired"`
-	How      string    `json:"how"`
-	By       string    `json:"by,omitempty"` // the site, the translator or the speech model
-	SavedAt  time.Time `json:"saved_at"`
-}
-
-// DoneCounts is how many of the subtitles now beside the videos HolyArrs made each way.
-type DoneCounts struct {
-	Downloaded int `json:"downloaded"`
-	Translated int `json:"translated"`
-	Speech     int `json:"speech"`
+func skippedCount(ctx context.Context, db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx, "SELECT count(*)"+skippedFrom).Scan(&n)
+	return n, err
 }
 
 // doneHow tells in SQL how a saved subtitle was made.
 const doneHow = `CASE WHEN s.transcribed = 1 THEN 'speech' WHEN s.made IN ('translated', 'translated_partial') THEN 'translated' ELSE 'downloaded' END`
 
-const doneFrom = ` FROM subtitles s JOIN files f ON f.id = s.file_id JOIN slots sl ON sl.id = json_extract(f.slot_ids, '$[0]')
+const doneFrom = ` FROM subtitles s JOIN files f ON f.id = s.file_id JOIN slots sl ON sl.id = (SELECT MIN(id) FROM slots WHERE file_id = f.id)
 		JOIN items i ON i.id = sl.item_id JOIN titles t ON t.id = i.title_id WHERE s.place = 'beside' AND s.state = 'present' AND s.origin = 'fetched' AND f.state = 'present' AND t.state != 'removed'`
 
-// Done lists the subtitles HolyArrs saved that are still beside their videos,
-// newest first, with how each was made, and counts them all by that.
-func Done(ctx context.Context, db *sql.DB, limit int) ([]DoneRow, DoneCounts, error) {
+func doneCountsQuery(ctx context.Context, db *sql.DB) (DoneCounts, error) {
 	var c DoneCounts
-	out := []DoneRow{}
 	crows, err := db.QueryContext(ctx, "SELECT "+doneHow+", count(*)"+doneFrom+" GROUP BY 1")
 	if err != nil {
-		return out, c, err
+		return c, err
 	}
+	defer crows.Close()
 	for crows.Next() {
 		var how string
 		var n int
 		if err := crows.Scan(&how, &n); err != nil {
-			crows.Close()
-			return out, c, err
+			return c, err
 		}
 		switch how {
 		case HowSpeech:
@@ -514,7 +507,17 @@ func Done(ctx context.Context, db *sql.DB, limit int) ([]DoneRow, DoneCounts, er
 			c.Downloaded = n
 		}
 	}
-	crows.Close()
+	return c, crows.Err()
+}
+
+// Done lists the subtitles HolyArrs saved that are still beside their videos,
+// newest first, with how each was made, and counts them all by that.
+func Done(ctx context.Context, db *sql.DB, limit int) ([]DoneRow, DoneCounts, error) {
+	out := []DoneRow{}
+	c, err := doneCountsQuery(ctx, db)
+	if err != nil {
+		return out, c, err
+	}
 	rows, err := db.QueryContext(ctx, `SELECT s.id, s.file_id, t.id, t.name, i.kind, json_extract(i.numbers, '$.season'), json_extract(i.numbers, '$.episode'),
 		s.language, s.forced, s.hearing_impaired, `+doneHow+`, COALESCE(s.site_name, ''), COALESCE(s.saved_at, s.created_at)`+doneFrom+
 		` ORDER BY COALESCE(s.saved_at, s.created_at) DESC, s.id DESC LIMIT ?`, limit)
@@ -532,14 +535,6 @@ func Done(ctx context.Context, db *sql.DB, limit int) ([]DoneRow, DoneCounts, er
 		out = append(out, d)
 	}
 	return out, c, rows.Err()
-}
-
-// MissingTitle is a movie or show missing at least one subtitle.
-type MissingTitle struct {
-	ID    int64  `json:"id"`
-	Name  string `json:"name"`
-	Kind  string `json:"kind"`
-	Count int    `json:"count"`
 }
 
 // MissingTitles lists by name the movies and shows missing a wanted subtitle,
@@ -612,4 +607,117 @@ func MissingList(ctx context.Context, db *sql.DB, mf MissingFilter, limit, offse
 		out = append(out, m)
 	}
 	return out, total, rows.Err()
+}
+
+func queryHistory(ctx context.Context, db *sql.DB, stateFilter, query string, limit, offset int) ([]HistoryItem, int, int, int, DoneCounts, error) {
+	dc, err := doneCountsQuery(ctx, db)
+	if err != nil {
+		return nil, 0, 0, 0, dc, err
+	}
+	doneCount := dc.Downloaded + dc.Translated + dc.Speech
+	skippedCnt, err := skippedCount(ctx, db)
+	if err != nil {
+		return nil, 0, 0, 0, dc, err
+	}
+
+	const doneSelect = `SELECT s.id, s.file_id, t.id AS title_id, t.name AS title, i.kind AS media_kind,
+		json_extract(i.numbers, '$.season') AS season, json_extract(i.numbers, '$.episode') AS episode,
+		COALESCE(NULLIF(s.relative_path, ''), f.relative_path) AS rel_path, f.relative_path AS video_path,
+		s.language, s.forced, s.hearing_impaired,
+		'done' AS state, ` + doneHow + ` AS how, COALESCE(s.site_name, '') AS source,
+		COALESCE(s.saved_at, s.created_at) AS at` + doneFrom
+	const skippedSelect = `SELECT s.id, s.file_id, t.id AS title_id, t.name AS title, i.kind AS media_kind,
+		json_extract(i.numbers, '$.season') AS season, json_extract(i.numbers, '$.episode') AS episode,
+		f.relative_path AS rel_path, f.relative_path AS video_path,
+		s.language, s.forced, s.hearing_impaired,
+		'skipped' AS state, 'skipped' AS how, '' AS source,
+		COALESCE(s.updated_at, s.created_at) AS at` + skippedFrom
+
+	var cte string
+	switch stateFilter {
+	case "done":
+		cte = doneSelect
+	case "skipped":
+		cte = skippedSelect
+	default:
+		cte = doneSelect + " UNION ALL " + skippedSelect
+	}
+
+	where := ""
+	var args []any
+	if q := strings.ToLower(strings.TrimSpace(query)); q != "" {
+		esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q)
+		pat := "%" + esc + "%"
+		cond := `(lower(title) LIKE ? ESCAPE '\' OR lower(rel_path) LIKE ? ESCAPE '\' OR lower(video_path) LIKE ? ESCAPE '\' OR lower(language) LIKE ? ESCAPE '\' OR lower(source) LIKE ? ESCAPE '\'`
+		args = append(args, pat, pat, pat, pat, pat)
+		var langCodes []string
+		for _, l := range Languages() {
+			if strings.Contains(strings.ToLower(l.Name), q) || strings.Contains(strings.ToLower(l.Code), q) {
+				langCodes = append(langCodes, l.Code)
+			}
+		}
+		if len(langCodes) > 0 {
+			marks := strings.TrimSuffix(strings.Repeat("?, ", len(langCodes)), ", ")
+			cond += " OR lower(language) IN (" + marks + ")"
+			for _, code := range langCodes {
+				args = append(args, code)
+			}
+		}
+		cond += ")"
+		where = " WHERE " + cond
+	}
+
+	var total int
+	if err := db.QueryRowContext(ctx, "WITH hist AS ("+cte+") SELECT count(*) FROM hist"+where, args...).Scan(&total); err != nil {
+		return nil, 0, doneCount, skippedCnt, dc, err
+	}
+	if total == 0 || offset >= total {
+		return []HistoryItem{}, total, doneCount, skippedCnt, dc, nil
+	}
+
+	pageArgs := append(append([]any{}, args...), limit, offset)
+	rows, err := db.QueryContext(ctx, "WITH hist AS ("+cte+") SELECT id, file_id, title_id, title, media_kind, season, episode, rel_path, language, forced, hearing_impaired, state, how, source, at FROM hist"+where+" ORDER BY at DESC, id DESC LIMIT ? OFFSET ?", pageArgs...)
+	if err != nil {
+		return nil, 0, doneCount, skippedCnt, dc, err
+	}
+	defer rows.Close()
+
+	out := []HistoryItem{}
+	for rows.Next() {
+		var item HistoryItem
+		var at string
+		if err := rows.Scan(&item.ID, &item.FileID, &item.TitleID, &item.Title, &item.MediaKind,
+			&item.Season, &item.Episode, &item.RelativePath, &item.Language, &item.Forced, &item.HearingImpaired,
+			&item.State, &item.How, &item.Source, &at); err != nil {
+			return nil, 0, doneCount, skippedCnt, dc, err
+		}
+		item.At, _ = time.Parse(database.TimeLayout, at)
+		out = append(out, item)
+	}
+	return out, total, doneCount, skippedCnt, dc, rows.Err()
+}
+
+func pendingSpeechRuntimes(ctx context.Context, db *sql.DB) (map[int64]float64, error) {
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT s.file_id, COALESCE(CAST(json_extract(f.media_info, '$.runtime_seconds') AS REAL), 0)`+
+		missingFrom+` AND NOT `+textHere+
+		` AND NOT EXISTS (SELECT 1 FROM subtitle_transcripts st WHERE st.file_id = s.file_id AND (st.state = 'final' OR st.tries >= ?))`,
+		transcribeTries)
+	return scanRuntimes(rows, err)
+}
+
+func scanRuntimes(rows *sql.Rows, err error) (map[int64]float64, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]float64{}
+	for rows.Next() {
+		var id int64
+		var sec float64
+		if err := rows.Scan(&id, &sec); err != nil {
+			return nil, err
+		}
+		out[id] = sec
+	}
+	return out, rows.Err()
 }

@@ -80,7 +80,7 @@
 					<ul>
 						{#each s.items as item (key(s, item))}
 							<li>
-								<SidebarItem href={link(item.href)} label={item.label} icon={item.icon} current={currentHref === item.href} {collapsed} badge={item.badge} badgeLabel={item.badgeLabel} ring={item.ring} dot={item.dot} {dotPanel} badgeTestid={item.href === '/downloads' ? 'nav-decide' : undefined} onclick={onpick} />
+								<SidebarItem href={link(item.href)} label={item.label} icon={item.icon} current={currentHref === item.href} {collapsed} badge={item.badge} badgeLabel={item.badgeLabel} ring={item.ring} dot={item.dot} dotPanel={item.href === '/settings' ? dotPanel : undefined} badgeTestid={item.href === '/downloads' ? 'nav-decide' : item.href === '/subtitles' ? 'nav-subtitles' : undefined} onclick={onpick} />
 							</li>
 						{/each}
 					</ul>

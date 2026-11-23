@@ -191,7 +191,9 @@ func (a *Auth) session(w http.ResponseWriter, r *http.Request) (webserver.Caller
 		_ = a.s.WriteCore(r.Context(), func(tx *sql.Tx) error {
 			return deleteSession(r.Context(), tx, h)
 		})
-		a.setCookie(w, r, "", -1)
+		if !row.replaced {
+			a.setCookie(w, r, "", -1)
+		}
 		return webserver.Caller{}, false
 	}
 	who.Via = "session"

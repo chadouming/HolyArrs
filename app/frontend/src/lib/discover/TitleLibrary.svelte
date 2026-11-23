@@ -250,6 +250,7 @@
 
 	const chosenGroup = $derived(owned?.show?.episode_group ?? null);
 	const eo = new EpisodeOrder(() => ({ id: owned?.id, show: !!owned?.show, manage, order: owned?.show?.episode_order ?? 'aired', chosen: chosenGroup, orders }), (body) => void putTitle(body, 'order'));
+	const orderText = $derived(busyAction === 'order' ? t('discover.titleLibrary.saving') : orderLabel(chosenGroup, orders.find(([v]) => v === owned?.show?.episode_order)?.[1] ?? t('discover.titleLibrary.orderAired'), t('discover.titleLibrary.orderUnavailable')));
 
 	// A new order renumbers the seasons, so loaded episodes are dropped; the rename preview is offered, never run.
 	function afterGroupChange(id: number, rename: boolean) {
@@ -456,11 +457,11 @@
 										<div class="lib-ep {tone}" class:future={!aired}>
 											{#if manage}<button type="button" class="lib-keep sm" class:on={e.keep_up_to_date !== false} aria-pressed={e.keep_up_to_date !== false} title={e.keep_up_to_date !== false ? t('discover.titleLibrary.keptUpToDate') : t('discover.titleLibrary.notKeptUpToDate')} aria-label={t('discover.titleLibrary.keepEpisodeUpTo', { episode: e.episode })} onclick={(ev) => { ev.stopPropagation(); void keepEpisode(e, se.number); }}><Icon name="check" size={11} /></button>{/if}
 											<span class="lib-ep-still">{#if e.still}<img src={e.still.replace('/w780/', '/w300/')} alt="" loading="lazy" decoding="async" />{/if}<span class="lib-ep-n">{e.episode}</span></span>
-											<button type="button" class="lib-ep-text" aria-label={t('discover.titleLibrary.episodeNamed', { episode: e.episode, name: e.name ?? '' })} onclick={() => { epPicked = e; epOpen = true; }}>
-												<b>{e.name ?? t('discover.titleLibrary.episodeN', { episode: e.episode })}{#if e.episode === (seasonEps[se.number]?.length ?? 0) && se.episodes > 1}<span class="lib-tag">{t('discover.titleLibrary.finale')}</span>{/if}</b>
+											<div class="lib-ep-text">
+												<span class="lib-ep-title"><button type="button" class="lib-ep-btn" aria-label={t('discover.titleLibrary.episodeNamed', { episode: e.episode, name: e.name ?? '' })} onclick={() => { epPicked = e; epOpen = true; }}>{e.name ?? t('discover.titleLibrary.episodeN', { episode: e.episode })}</button>{#if e.episode === (seasonEps[se.number]?.length ?? 0) && se.episodes > 1}<span class="lib-tag">{t('discover.titleLibrary.finale')}</span>{/if}</span>
 												<small>{[airWords(e.air_day, e.air_date), e.runtime_minutes ? t('discover.titleLibrary.runtimeMin', { n: e.runtime_minutes }) : '', epFile(e)].filter(Boolean).join(' · ')}</small>
 												{#if manage && chosenWhy(st)}<small class="lib-ep-why" data-testid="episode-chosen-why">{serverWords(chosenWhy(st))}</small>{/if}
-											</button>
+											</div>
 											<span class="lib-ep-st {aired ? tone : 'future'}"><span class="own-dot {tone}" aria-hidden="true"></span>{aired ? epQuality(e) || (st?.state === 'not_out_yet' ? t('discover.titleLibrary.waitingAfterAir') : '') || serverWords(st?.state_label) || t('discover.titleLibrary.missing') : t('discover.titleLibrary.notOutYet')}</span>
 											{#if manage && st}
 												<span class="lib-ep-acts">
@@ -483,7 +484,7 @@
 								<div class="lib-eps">
 									{#each eo.outside as e (e.id)}
 										{@const tone = epTone(e.slots[0]?.state ?? '')}
-										<div class="lib-ep {tone}"><span class="lib-ep-still">{#if e.still}<img src={e.still.replace('/w780/', '/w300/')} alt="" loading="lazy" decoding="async" />{/if}<span class="lib-ep-n">{e.episode}</span></span><button type="button" class="lib-ep-text" aria-label={t('discover.titleLibrary.episodeNamed', { episode: e.episode, name: e.name ?? '' })} onclick={() => { epPicked = e; epOpen = true; }}><b>{e.name ?? t('discover.titleLibrary.episodeN', { episode: e.episode })}</b><small>{[t('discover.titleLibrary.seasonN', { n: e.season ?? 0 }), epFile(e)].filter(Boolean).join(' · ')}</small></button><span class="lib-ep-st {tone}"><span class="own-dot {tone}" aria-hidden="true"></span>{epQuality(e) || serverWords(e.slots[0]?.state_label) || t('discover.titleLibrary.missing')}</span></div>
+										<div class="lib-ep {tone}"><span class="lib-ep-still">{#if e.still}<img src={e.still.replace('/w780/', '/w300/')} alt="" loading="lazy" decoding="async" />{/if}<span class="lib-ep-n">{e.episode}</span></span><div class="lib-ep-text"><span class="lib-ep-title"><button type="button" class="lib-ep-btn" aria-label={t('discover.titleLibrary.episodeNamed', { episode: e.episode, name: e.name ?? '' })} onclick={() => { epPicked = e; epOpen = true; }}>{e.name ?? t('discover.titleLibrary.episodeN', { episode: e.episode })}</button></span><small>{[t('discover.titleLibrary.seasonN', { n: e.season ?? 0 }), epFile(e)].filter(Boolean).join(' · ')}</small></div><span class="lib-ep-st {tone}"><span class="own-dot {tone}" aria-hidden="true"></span>{epQuality(e) || serverWords(e.slots[0]?.state_label) || t('discover.titleLibrary.missing')}</span></div>
 									{/each}
 								</div>
 							{/if}
@@ -552,18 +553,18 @@
 					{#if o.show}
 						<div class="lib-row static" data-testid="seasons-row">
 							<span><b>{t('discover.titleLibrary.seasons')}</b></span>
-							<div class="lib-pick"><Menu label={t('discover.titleLibrary.seasons')} variant="button" items={seasonMenu} width={200}>{#snippet trigger()}<span>{busyAction === 'seasons' ? t('discover.titleLibrary.saving') : seasonPickWords[seasonPick]}</span><Icon name="chevronDown" size={14} />{/snippet}</Menu></div>
+							<div class="lib-pick"><Menu label={`${t('discover.titleLibrary.seasons')}: ${busyAction === 'seasons' ? t('discover.titleLibrary.saving') : seasonPickWords[seasonPick]}`} variant="button" items={seasonMenu} width={200}>{#snippet trigger()}<span>{busyAction === 'seasons' ? t('discover.titleLibrary.saving') : seasonPickWords[seasonPick]}</span><Icon name="chevronDown" size={14} />{/snippet}</Menu></div>
 						</div>
 						<div class="lib-row static">
 							<span><b>{t('discover.titleLibrary.episodeOrder')}</b>{#if eo.hint}<small>{eo.hint}</small>{/if}</span>
-							<div class="lib-pick"><Menu label={t('discover.titleLibrary.episodeOrder')} variant="button" items={eo.menu} width={eo.groupList?.groups.length ? 300 : 200}>{#snippet trigger()}<span>{busyAction === 'order' ? t('discover.titleLibrary.saving') : orderLabel(chosenGroup, orders.find(([v]) => v === o.show?.episode_order)?.[1] ?? t('discover.titleLibrary.orderAired'), t('discover.titleLibrary.orderUnavailable'))}</span><Icon name="chevronDown" size={14} />{/snippet}</Menu></div>
+							<div class="lib-pick"><Menu label={`${t('discover.titleLibrary.episodeOrder')}: ${orderText}`} variant="button" items={eo.menu} width={eo.groupList?.groups.length ? 300 : 200}>{#snippet trigger()}<span>{orderText}</span><Icon name="chevronDown" size={14} />{/snippet}</Menu></div>
 						</div><SeasonPacksRow value={o.show?.pack_window ?? 0} busy={busyAction === 'pack'} onpick={(n) => void putTitle({ pack_window: n }, 'pack')} />
 					{/if}
 					<!-- Only when there is another folder of this kind to move to. -->
 					{#if kindFolders.length > 1}
 						<div class="lib-row static" data-testid="folder-row" title={o.folder_path ?? ''}>
 							<span><b>{t('discover.titleLibrary.folder')}</b></span>
-							<div class="lib-pick"><Menu label={t('discover.titleLibrary.folder')} variant="button" items={folderMenu} width={340}>{#snippet trigger()}<span>{curFolder ? folderName(curFolder) : t('discover.titleLibrary.folderWord')}</span><Icon name="chevronDown" size={14} />{/snippet}</Menu></div>
+							<div class="lib-pick"><Menu label={`${t('discover.titleLibrary.folder')}: ${curFolder ? folderName(curFolder) : t('discover.titleLibrary.folderWord')}`} variant="button" items={folderMenu} width={340}>{#snippet trigger()}<span>{curFolder ? folderName(curFolder) : t('discover.titleLibrary.folderWord')}</span><Icon name="chevronDown" size={14} />{/snippet}</Menu></div>
 						</div>
 					{/if}
 					<div class="lib-row static q-row" data-testid="subtitles-row">
@@ -572,7 +573,7 @@
 							<button type="button" role="radio" aria-checked={subsMode === 'default'} class:on={subsMode === 'default'} disabled={busyAction === 'subs'} onclick={() => setSubs('default')}>{t('discover.titleLibrary.default')}</button>
 							<button type="button" role="radio" aria-checked={subsMode === 'off'} class:on={subsMode === 'off'} disabled={busyAction === 'subs'} onclick={() => setSubs('off')}>{t('discover.titleLibrary.off')}</button>
 							<div class="q-more" class:on={subsMode === 'custom'}>
-								<Menu label={t('discover.titleLibrary.subtitleOptions')} variant="button" width={230} items={subsMenu}>{#snippet trigger()}<i>{subsMode === 'custom' ? subsCodes(subsOwn?.languages ?? []) : t('discover.titleLibrary.pickCustom')}</i><Icon name="chevronDown" size={13} />{/snippet}</Menu>
+								<Menu label={`${t('discover.titleLibrary.subtitleOptions')}: ${subsMode === 'custom' ? subsCodes(subsOwn?.languages ?? []) : t('discover.titleLibrary.pickCustom')}`} variant="button" width={230} items={subsMenu}>{#snippet trigger()}<i>{subsMode === 'custom' ? subsCodes(subsOwn?.languages ?? []) : t('discover.titleLibrary.pickCustom')}</i><Icon name="chevronDown" size={13} />{/snippet}</Menu>
 							</div>
 						</div>
 					</div>
@@ -682,10 +683,10 @@
 	.lib-keep.sm { width: 24px; height: 24px; border-radius: 5px; }
 	.lib-sr .lib-eps { padding: 0 6px 8px; border-top: .5px solid color-mix(in srgb, var(--text) 8%, transparent); }
 	.lib-sr .lib-ep { grid-template-columns: 24px 96px minmax(0, 1fr) auto auto; }
-	.lib-sr .lib-ep:hover, .lib-sr .lib-ep:has(.lib-ep-text:focus-visible) { background: color-mix(in srgb, var(--text) 5%, transparent); }
+	.lib-sr .lib-ep:hover, .lib-sr .lib-ep:has(.lib-ep-btn:focus-visible) { background: color-mix(in srgb, var(--text) 5%, transparent); }
 	.lib-ep.future .lib-ep-still img { filter: grayscale(.8) brightness(.55); }
 	.lib-ep-st.future { color: var(--text-muted); background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent); }
-	.lib-tag { margin-left: 8px; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 5px; background: color-mix(in srgb, var(--info) 10%, transparent); color: var(--text); font: 700 10.5px/1 var(--font-ui); letter-spacing: .04em; text-transform: uppercase; vertical-align: 2px; }
+	.lib-tag { margin-left: 8px; flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 5px; background: color-mix(in srgb, var(--info) 10%, transparent); color: var(--text); font: 700 10.5px/1 var(--font-ui); letter-spacing: .04em; text-transform: uppercase; vertical-align: 2px; }
 	@media (max-width: 600px) {
 		.lib-sr-note { display: none; }
 		.lib-sr .lib-ep { grid-template-columns: 24px 84px minmax(0, 1fr) auto; }
@@ -699,10 +700,10 @@
 	.lib-eps { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 	.lib-ep { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto 34px; align-items: center; gap: 14px; padding: 6px; border-radius: 12px; transition: background var(--dur-fast) var(--ease-out); }
 	.lib-ep { position: relative; cursor: pointer; }
-	.lib-ep:hover, .lib-ep:has(.lib-ep-text:focus-visible) { background: var(--surface-2); }
+	.lib-ep:hover, .lib-ep:has(.lib-ep-btn:focus-visible) { background: var(--surface-2); }
 	/* The title button covers the whole row; the row's own buttons sit above it. */
-	button.lib-ep-text { padding: 0; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
-	button.lib-ep-text::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+	button.lib-ep-btn { padding: 0; border: 0; background: none; color: inherit; text-align: left; font: 600 15px/1.25 var(--font-ui); cursor: pointer; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	button.lib-ep-btn::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
 	.lib-ep .lib-keep, .lib-ep-acts { position: relative; z-index: 1; }
 	.lib-ep.skel { height: 75px; background: var(--surface-2); animation: pulse 1.2s ease-in-out infinite alternate; }
 	@keyframes pulse { to { opacity: .5; } }
@@ -711,7 +712,7 @@
 	.lib-ep.missing .lib-ep-still img { filter: grayscale(.7) brightness(.7); }
 	.lib-ep-n { position: absolute; left: 6px; bottom: 6px; min-width: 22px; height: 22px; padding: 0 6px; display: grid; place-items: center; border-radius: 6px; background: rgb(0 0 0 / 62%); color: #fff; font: 700 12px/1 var(--font-ui); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 	.lib-ep-text { display: grid; gap: 4px; min-width: 0; }
-	.lib-ep-text b { font: 600 15px/1.25 var(--font-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.lib-ep-title { display: flex; align-items: center; min-width: 0; }
 	.lib-ep-text small { color: var(--text-muted); font: 500 13px/1.2 var(--font-ui); }
 	.lib-ep-text small.lib-ep-why { line-height: 1.35; white-space: normal; }
 	.lib-ep-st { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border-radius: 99px; background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); font: 600 12px/1 var(--font-ui); white-space: nowrap; }

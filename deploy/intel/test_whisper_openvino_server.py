@@ -130,19 +130,71 @@ class FakeWhisperPipeline:
 class ModelAndDeviceTests(unittest.TestCase):
     def test_map_model_variant(self) -> None:
         self.assertEqual(
-            srv.map_model_variant("/config/models/whisper-large-v3-turbo-q8_0.gguf"),
+            srv.map_model_variant("/config/models/whisper-large-v3-turbo-q8_0.gguf", env={}),
             ("OpenVINO/whisper-large-v3-turbo-int8-ov", "ov-whisper-large-v3-turbo-int8"),
         )
         self.assertEqual(
-            srv.map_model_variant("/config/models/whisper-large-v3-turbo-q5_0.bin"),
+            srv.map_model_variant(
+                "/config/models/whisper-large-v3-turbo-q8_0.gguf",
+                ov_device="GPU",
+                env={},
+            ),
+            ("OpenVINO/whisper-large-v3-turbo-int8-ov", "ov-whisper-large-v3-turbo-int8"),
+        )
+        self.assertEqual(
+            srv.map_model_variant(
+                "/config/models/whisper-large-v3-turbo-q8_0.gguf",
+                ov_device="GPU.0",
+                env={},
+            ),
+            ("OpenVINO/whisper-large-v3-turbo-int8-ov", "ov-whisper-large-v3-turbo-int8"),
+        )
+        self.assertEqual(
+            srv.map_model_variant(
+                "/config/models/whisper-large-v3-turbo-q8_0.gguf",
+                ov_device="CPU",
+                env={},
+            ),
+            ("OpenVINO/whisper-large-v3-turbo-int8-ov", "ov-whisper-large-v3-turbo-int8"),
+        )
+        self.assertEqual(
+            srv.map_model_variant(
+                "/config/models/whisper-large-v3-turbo-q8_0.gguf",
+                ov_device="GPU",
+                env={"HOLYARRS_OV_PREFER_FP16": "1"},
+            ),
+            ("OpenVINO/whisper-large-v3-turbo-fp16-ov", "ov-whisper-large-v3-turbo-fp16"),
+        )
+        self.assertEqual(
+            srv.map_model_variant(
+                "/config/models/whisper-large-v3-turbo-q8_0.gguf",
+                ov_device="CPU",
+                env={"HOLYARRS_OV_PREFER_FP16": "1"},
+            ),
+            ("OpenVINO/whisper-large-v3-turbo-int8-ov", "ov-whisper-large-v3-turbo-int8"),
+        )
+        self.assertEqual(
+            srv.map_model_variant(
+                "/config/models/whisper-large-v3-turbo-int8.gguf",
+                ov_device="GPU",
+                env={},
+            ),
+            ("OpenVINO/whisper-large-v3-turbo-int8-ov", "ov-whisper-large-v3-turbo-int8"),
+        )
+        self.assertEqual(
+            srv.map_model_variant(
+                "/config/models/whisper-large-v3-turbo-q5_0.bin",
+                ov_device="GPU",
+                env={},
+            ),
             ("OpenVINO/whisper-large-v3-turbo-int4-ov", "ov-whisper-large-v3-turbo-int4"),
         )
         self.assertEqual(
-            srv.map_model_variant("/config/models/ggml-large-v3-turbo-int4.gguf"),
+            srv.map_model_variant("/config/models/ggml-large-v3-turbo-int4.gguf", env={}),
             ("OpenVINO/whisper-large-v3-turbo-int4-ov", "ov-whisper-large-v3-turbo-int4"),
         )
         self.assertEqual(
-            srv.map_model_variant("/config/models/whisper-large-v3-turbo-fp16.gguf"),
+            srv.map_model_variant("/config/models/whisper-large-v3-turbo-fp16.gguf", env={}),
             ("OpenVINO/whisper-large-v3-turbo-fp16-ov", "ov-whisper-large-v3-turbo-fp16"),
         )
 
@@ -152,6 +204,36 @@ class ModelAndDeviceTests(unittest.TestCase):
         self.assertEqual(srv.select_device(0, available_devices=["CPU", "GPU"]), "GPU")
         self.assertEqual(srv.select_device(0, available_devices=["CPU", "GPU.0", "GPU.1"]), "GPU.0")
         self.assertEqual(srv.select_device(1, available_devices=["CPU", "GPU.0", "GPU.1"]), "GPU.1")
+        self.assertEqual(
+            srv.select_device(
+                0,
+                available_devices=["CPU", "GPU.0", "GPU.1"],
+                device_types={"GPU.0": "Type.INTEGRATED", "GPU.1": "Type.DISCRETE"},
+            ),
+            "GPU.1",
+        )
+        self.assertEqual(
+            srv.select_device(
+                1,
+                available_devices=["CPU", "GPU.0", "GPU.1"],
+                device_types={"GPU.0": "Type.INTEGRATED", "GPU.1": "Type.DISCRETE"},
+            ),
+            "GPU.0",
+        )
+
+    def test_query_device_types_handles_errors(self) -> None:
+        class _FakeCore:
+            def get_property(self, dev: str, prop: str) -> str:
+                if dev == "GPU.0":
+                    return "Type.INTEGRATED"
+                if dev == "GPU.1":
+                    raise RuntimeError("property unsupported")
+                return "Type.DISCRETE"
+
+        types = srv.query_device_types(["CPU", "GPU.0", "GPU.1", "GPU.2"], core=_FakeCore())
+        self.assertEqual(types, {"GPU.0": "Type.INTEGRATED", "GPU.2": "Type.DISCRETE"})
+        ordered = srv._order_devices_by_type(["CPU", "GPU.0", "GPU.1", "GPU.2"], types)
+        self.assertEqual(ordered, ["CPU", "GPU.2", "GPU.0", "GPU.1"])
 
     def test_cli_flags_include_vmsd_and_whisper_server_flags(self) -> None:
         args, _ = srv.build_arg_parser().parse_known_args(
@@ -206,6 +288,185 @@ class ModelAndDeviceTests(unittest.TestCase):
             self.assertEqual(ir_dir_2, ir_dir)
             self.assertEqual(len(downloads), 1)
 
+            ir_dir_gpu = srv.resolve_ir_dir(gguf, env={}, downloader=fake_dl, ov_device="GPU")
+            self.assertEqual(ir_dir_gpu, ir_dir)
+            self.assertEqual(len(downloads), 1)
+
+            ir_dir_fp16 = srv.resolve_ir_dir(
+                gguf, env={"HOLYARRS_OV_PREFER_FP16": "1"}, downloader=fake_dl, ov_device="GPU"
+            )
+            self.assertEqual(len(downloads), 2)
+            self.assertEqual(downloads[1][0], "OpenVINO/whisper-large-v3-turbo-fp16-ov")
+            self.assertTrue(ir_dir_fp16.endswith("ov-whisper-large-v3-turbo-fp16"))
+
+    def test_file_lock_serializes_and_degrades_safely(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_path = os.path.join(tmp, "nested", ".test.lock")
+            active = 0
+            max_active = 0
+            completed = 0
+            state_lock = threading.Lock()
+            t1_entered = threading.Event()
+            release_t1 = threading.Event()
+
+            def worker(is_first: bool) -> None:
+                nonlocal active, max_active, completed
+                with srv._file_lock(lock_path):
+                    with state_lock:
+                        active += 1
+                        if active > max_active:
+                            max_active = active
+                    if is_first:
+                        t1_entered.set()
+                        release_t1.wait(timeout=2.0)
+                    with state_lock:
+                        active -= 1
+                        completed += 1
+
+            t1 = threading.Thread(target=worker, args=(True,))
+            t2 = threading.Thread(target=worker, args=(False,))
+            t1.start()
+            self.assertTrue(t1_entered.wait(timeout=2.0))
+            t2.start()
+            # While t1 holds the lock, t2 must stay blocked until t1 releases.
+            t2.join(timeout=0.05)
+            self.assertTrue(t2.is_alive())
+            release_t1.set()
+            t1.join(timeout=2.0)
+            t2.join(timeout=2.0)
+            self.assertEqual(max_active, 1)
+            self.assertEqual(completed, 2)
+            self.assertTrue(os.path.exists(lock_path))
+
+            # Unopenable lock path (parent is an existing regular file) degrades cleanly.
+            blocking_file = os.path.join(tmp, "not_a_dir")
+            Path(blocking_file).write_text("x", encoding="utf-8")
+            ran = False
+            with srv._file_lock(os.path.join(blocking_file, ".lock")):
+                ran = True
+            self.assertTrue(ran)
+
+            # Missing fcntl module degrades cleanly to a no-op.
+            ran_no_fcntl = False
+            with mock.patch.dict(sys.modules, {"fcntl": None}):
+                with srv._file_lock(os.path.join(tmp, ".nofcntl.lock")):
+                    ran_no_fcntl = True
+            self.assertTrue(ran_no_fcntl)
+
+    def test_resolve_ir_dir_rechecks_inside_download_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            gguf = os.path.join(tmp, "whisper-large-v3-turbo-q8_0.gguf")
+            ov_dir = os.path.join(tmp, "openvino")
+            ir_dir = os.path.join(ov_dir, "ov-whisper-large-v3-turbo-int8")
+            lock_path = os.path.join(ov_dir, ".download.lock")
+            os.makedirs(ir_dir, exist_ok=True)
+
+            downloads: list[tuple[str, str]] = []
+            result_holder: list[str] = []
+
+            def second_dl(repo_id: str, local_dir: str) -> None:
+                downloads.append((repo_id, local_dir))
+
+            with srv._file_lock(lock_path):
+                t = threading.Thread(
+                    target=lambda: result_holder.append(
+                        srv.resolve_ir_dir(gguf, env={}, downloader=second_dl)
+                    )
+                )
+                t.start()
+                # Thread must block on .download.lock before calling downloader.
+                t.join(timeout=0.05)
+                self.assertTrue(t.is_alive())
+                self.assertEqual(downloads, [])
+                # Simulate the first process finishing download while holding the lock.
+                Path(ir_dir, "openvino_encoder_model.xml").write_text("<net/>", encoding="utf-8")
+
+            t.join(timeout=2.0)
+            self.assertFalse(t.is_alive())
+            self.assertEqual(downloads, [])
+            self.assertEqual(result_holder, [ir_dir])
+
+    def test_create_pipeline_retries_without_cache_on_fs_error_and_serializes(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        def fs_err_cls(ir_dir: str, device: str, **kwargs: object) -> str:
+            calls.append(dict(kwargs))
+            if "CACHE_DIR" in kwargs:
+                raise RuntimeError(
+                    "filesystem error: cannot set permissions: No such file or directory [/cache/123.blob]"
+                )
+            return f"pipe:{device}:nocache"
+
+        err_buf = io.StringIO()
+        with mock.patch("os.cpu_count", return_value=64):
+            with mock.patch.object(sys, "stderr", err_buf):
+                pipe = srv.create_pipeline(
+                    "/ir", "GPU.0", "/cache", pipeline_cls=fs_err_cls, env={}
+                )
+
+        self.assertEqual(pipe, "pipe:GPU.0:nocache")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            calls[0],
+            {
+                "CACHE_DIR": "/cache",
+                "COMPILATION_NUM_THREADS": 4,
+                "PERFORMANCE_HINT": "LATENCY",
+                "NUM_STREAMS": "1",
+            },
+        )
+        self.assertEqual(
+            calls[1],
+            {
+                "COMPILATION_NUM_THREADS": 4,
+                "PERFORMANCE_HINT": "LATENCY",
+                "NUM_STREAMS": "1",
+            },
+        )
+        self.assertIn("retrying without cache", err_buf.getvalue())
+
+        # When cache_dir exists on disk, concurrent create_pipeline calls serialize on .compile.lock.
+        with tempfile.TemporaryDirectory() as cache_dir:
+            active = 0
+            max_active = 0
+            state_lock = threading.Lock()
+            first_entered = threading.Event()
+            release_first = threading.Event()
+
+            def locked_cls(ir_dir: str, device: str, **kwargs: object) -> str:
+                nonlocal active, max_active
+                with state_lock:
+                    active += 1
+                    if active > max_active:
+                        max_active = active
+                if device == "GPU.0":
+                    first_entered.set()
+                    release_first.wait(timeout=2.0)
+                with state_lock:
+                    active -= 1
+                return f"pipe:{device}"
+
+            t1 = threading.Thread(
+                target=srv.create_pipeline,
+                args=("/ir", "GPU.0", cache_dir),
+                kwargs={"pipeline_cls": locked_cls, "env": {}},
+            )
+            t2 = threading.Thread(
+                target=srv.create_pipeline,
+                args=("/ir", "GPU.1", cache_dir),
+                kwargs={"pipeline_cls": locked_cls, "env": {}},
+            )
+            t1.start()
+            self.assertTrue(first_entered.wait(timeout=2.0))
+            t2.start()
+            t2.join(timeout=0.05)
+            self.assertTrue(t2.is_alive())
+            release_first.set()
+            t1.join(timeout=2.0)
+            t2.join(timeout=2.0)
+            self.assertEqual(max_active, 1)
+            self.assertTrue(os.path.exists(os.path.join(cache_dir, ".compile.lock")))
+
     def test_configure_thread_env_defaults_and_preserves_existing(self) -> None:
         env: dict[str, str] = {"OMP_NUM_THREADS": "16", "TBB_NUM_THREADS": "8"}
         with mock.patch("os.cpu_count", return_value=64):
@@ -233,16 +494,40 @@ class ModelAndDeviceTests(unittest.TestCase):
 
         def fake_cls(ir_dir: str, device: str, **kwargs: object) -> str:
             seen.append((device, kwargs))
-            if "word_timestamps" in kwargs:
-                raise TypeError("unexpected keyword argument 'word_timestamps'")
             if device == "GPU":
                 raise RuntimeError("zeInit failed")
             return f"pipe:{device}"
 
-        pipe = srv.create_pipeline("/ir", "GPU", "/cache", pipeline_cls=fake_cls, env={"HOLYARRS_OV_FALLBACK_CPU": "1"})
+        pipe = srv.create_pipeline(
+            "/ir",
+            "GPU",
+            "/cache",
+            pipeline_cls=fake_cls,
+            env={"HOLYARRS_OV_FALLBACK_CPU": "1"},
+        )
         self.assertEqual(pipe, "pipe:CPU")
         self.assertEqual(seen[0][0], "GPU")
         self.assertEqual(seen[-1][0], "CPU")
+        self.assertTrue(all("word_timestamps" not in kw for _, kw in seen))
+
+        opt_in_seen: list[tuple[str, dict[str, object]]] = []
+
+        def opt_in_cls(ir_dir: str, device: str, **kwargs: object) -> str:
+            opt_in_seen.append((device, dict(kwargs)))
+            if "word_timestamps" in kwargs:
+                raise RuntimeError("unsupported argument word_timestamps")
+            return f"pipe:{device}"
+
+        pipe_opt = srv.create_pipeline(
+            "/ir",
+            "CPU",
+            "/cache",
+            pipeline_cls=opt_in_cls,
+            env={"HOLYARRS_OV_WORD_TIMESTAMPS": "1"},
+        )
+        self.assertEqual(pipe_opt, "pipe:CPU")
+        self.assertTrue(opt_in_seen[0][1].get("word_timestamps"))
+        self.assertNotIn("word_timestamps", opt_in_seen[1][1])
 
     def test_create_pipeline_gpu_and_cpu_property_fallbacks(self) -> None:
         gpu_calls: list[dict[str, object]] = []
@@ -254,19 +539,18 @@ class ModelAndDeviceTests(unittest.TestCase):
             return f"gpu:{device}"
 
         with mock.patch("os.cpu_count", return_value=64):
-            pipe = srv.create_pipeline("/ir", "GPU.0", "/cache", pipeline_cls=gpu_prop_fallback)
+            pipe = srv.create_pipeline("/ir", "GPU.0", "/cache", pipeline_cls=gpu_prop_fallback, env={})
         self.assertEqual(pipe, "gpu:GPU.0")
         self.assertEqual(
             gpu_calls[0],
             {
-                "word_timestamps": True,
                 "CACHE_DIR": "/cache",
                 "COMPILATION_NUM_THREADS": 4,
                 "PERFORMANCE_HINT": "LATENCY",
-                "NUM_STREAMS": 1,
+                "NUM_STREAMS": "1",
             },
         )
-        self.assertEqual(gpu_calls[-1], {"word_timestamps": True, "CACHE_DIR": "/cache"})
+        self.assertEqual(gpu_calls[-1], {"CACHE_DIR": "/cache"})
 
         cpu_calls: list[dict[str, object]] = []
 
@@ -276,22 +560,20 @@ class ModelAndDeviceTests(unittest.TestCase):
                 raise RuntimeError("Unsupported property PERFORMANCE_HINT")
             return f"cpu:{device}"
 
-        pipe_cpu = srv.create_pipeline("/ir", "CPU", "/cache", threads=3, pipeline_cls=cpu_prop_fallback)
+        pipe_cpu = srv.create_pipeline("/ir", "CPU", "/cache", threads=3, pipeline_cls=cpu_prop_fallback, env={})
         self.assertEqual(pipe_cpu, "cpu:CPU")
         self.assertEqual(
             cpu_calls[0],
             {
-                "word_timestamps": True,
                 "CACHE_DIR": "/cache",
                 "INFERENCE_NUM_THREADS": 3,
                 "PERFORMANCE_HINT": "LATENCY",
-                "NUM_STREAMS": 1,
+                "NUM_STREAMS": "1",
             },
         )
         self.assertEqual(
             cpu_calls[1],
             {
-                "word_timestamps": True,
                 "CACHE_DIR": "/cache",
                 "INFERENCE_NUM_THREADS": 3,
             },
@@ -379,7 +661,7 @@ class ModelAndDeviceTests(unittest.TestCase):
             logprob_threshold=-1.0,
         )
         self.assertEqual(res2.language, "en")
-        self.assertEqual(res2.texts, ["['logprob_threshold', 'return_timestamps', 'task']"])
+        self.assertEqual(res2.texts, ["['logprob_threshold', 'max_new_tokens', 'return_timestamps', 'task']"])
 
         class AlwaysFailPipeline:
             def generate(self, audio_chunk: object, **kwargs: object) -> FakeResult:
@@ -445,6 +727,37 @@ class AudioAndMultipartTests(unittest.TestCase):
             self.assertLessEqual(end - start, 12.05)
             self.assertGreater(len(chunk), 0)
 
+    def test_pack_regions_and_vad_pack_nearby_speech(self) -> None:
+        # Direct helper checks: gap <= max_gap_sec merges while respecting max_span_sec.
+        packed = srv._pack_regions([(0, 10), (15, 25), (40, 50)], step_sec=0.1, max_span_sec=3.0, max_gap_sec=1.0)
+        self.assertEqual(packed, [(0, 25), (40, 50)])
+
+        capped = srv._pack_regions([(0, 20), (25, 45)], step_sec=0.1, max_span_sec=4.0, max_gap_sec=1.0)
+        self.assertEqual(capped, [(0, 20), (25, 45)])
+
+        # 1.5s silence between two 2.0s speech segments packs into 1 span; 4.5s silence stays separate.
+        t1 = sine_samples(2.0, amplitude=10000)
+        gap_short = [0] * int(1.5 * 16000)
+        t2 = sine_samples(2.0, amplitude=10000)
+        gap_long = [0] * int(4.5 * 16000)
+        t3 = sine_samples(2.0, amplitude=10000)
+        audio = srv.decode_wav_pcm16(make_pcm16_wav(t1 + gap_short + t2 + gap_long + t3))
+
+        spans = srv.segment_audio_vad(audio, sample_rate=16000, vad_enabled=True)
+        self.assertEqual(len(spans), 2)
+        self.assertLess(spans[0][0], 0.1)
+        self.assertGreater(spans[0][1], 5.3)
+        self.assertGreater(spans[1][0], 9.5)
+
+        # Packed result must never exceed max_span_sec (two 6s chunks with 1.5s gap = 13.5s > 10s).
+        s_a = sine_samples(6.0, amplitude=10000)
+        s_b = sine_samples(6.0, amplitude=10000)
+        audio_capped = srv.decode_wav_pcm16(make_pcm16_wav(s_a + gap_short + s_b))
+        spans_capped = srv.segment_audio_vad(audio_capped, sample_rate=16000, vad_enabled=True, max_span_sec=10.0)
+        self.assertEqual(len(spans_capped), 2)
+        for start, end, _ in spans_capped:
+            self.assertLessEqual(end - start, 10.0)
+
 
 class HttpServerTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -502,11 +815,11 @@ class HttpServerTests(unittest.TestCase):
         self.assertEqual(self.fake_pipe.calls[-1][1].get("max_new_tokens"), 1)
 
         # 2. Multi-span transcription sent via HTTP/1.1 Transfer-Encoding: chunked (matching Go io.Pipe).
-        # Layout: 4s silence, 1.5s speech, 3s silence, 1.5s speech.
+        # Layout: 4s silence, 1.5s speech, 4.5s silence, 1.5s speech.
         wav_trans = make_pcm16_wav(
             ([0] * (4 * 16000))
             + sine_samples(1.5, amplitude=10000)
-            + ([0] * (3 * 16000))
+            + ([0] * int(4.5 * 16000))
             + sine_samples(1.5, amplitude=10000)
         )
         ctype2, body2 = build_multipart(
@@ -568,13 +881,28 @@ class HttpServerTests(unittest.TestCase):
         # First speech starts near 4.0s (minus 250ms padding = ~3.75s).
         self.assertGreater(seg0["start"], 3.8)
         self.assertGreater(seg0["end"], seg0["start"])
-        # Second speech starts near 8.5s (minus 250ms padding = ~8.25s).
-        self.assertGreater(seg1["start"], 8.3)
+        # Second speech starts near 10.0s (minus 250ms padding = ~9.75s).
+        self.assertGreater(seg1["start"], 9.8)
         words = seg0["words"]
         self.assertEqual([w["word"] for w in words], [" Hello", " world", "."])
         self.assertGreater(words[0]["start"], 3.8)
         self.assertIn("progress =  50%", err_buf2.getvalue())
         self.assertIn("progress = 100%", err_buf2.getvalue())
+
+    def test_handler_send_json_ignores_client_disconnect(self) -> None:
+        handler_cls = srv.make_handler(self.service)
+        for exc_cls in (BrokenPipeError, ConnectionResetError):
+            handler = handler_cls.__new__(handler_cls)
+            handler.send_response = lambda code: None  # type: ignore[method-assign]
+            handler.send_header = lambda k, v: None  # type: ignore[method-assign]
+            handler.end_headers = lambda: None  # type: ignore[method-assign]
+
+            class DisconnectingWriter:
+                def write(self, data: bytes) -> int:
+                    raise exc_cls("client disconnected")
+
+            handler.wfile = DisconnectingWriter()  # type: ignore[assignment]
+            handler._send_json(200, {"status": "ok"})
 
 
 class CutoffAndSileroVadTests(unittest.TestCase):
@@ -654,6 +982,39 @@ class CutoffAndSileroVadTests(unittest.TestCase):
         self.assertAlmostEqual(long_spans[0][1], (valley_w * win + win // 2) / 16000, delta=0.05)
         self.assertAlmostEqual(long_spans[1][0], long_spans[0][1], places=4)
 
+    def test_silero_vad_packs_nearby_speech_and_respects_max_span(self) -> None:
+        win = srv.SILERO_WINDOW_SAMPLES
+        # 2s speech, 1.5s silence, 2s speech, 4.5s silence, 2s speech.
+        total_sec = 12.0
+        audio = [0.2] * int(total_sec * 16000)
+        n_win = len(audio) // win
+
+        def w_idx(sec: float) -> int:
+            return int(round(sec * 16000 / win))
+
+        probs = [0.05] * n_win
+        for s_sec, e_sec in ((0.0, 2.0), (3.5, 5.5), (10.0, 12.0)):
+            for i in range(w_idx(s_sec), min(n_win, w_idx(e_sec))):
+                probs[i] = 0.9
+
+        spans = srv.segment_audio_silero(audio, probs, sample_rate=16000)
+        self.assertEqual(len(spans), 2)
+        self.assertAlmostEqual(spans[0][0], 0.0, places=2)
+        self.assertGreater(spans[0][1], 5.4)
+        self.assertGreater(spans[1][0], 9.6)
+
+        # Two 6s speech bursts separated by 1.5s must not pack past max_span_sec=10.0.
+        audio_cap = [0.2] * int(13.5 * 16000)
+        n_cap = len(audio_cap) // win
+        probs_cap = [0.05] * n_cap
+        for s_sec, e_sec in ((0.0, 6.0), (7.5, 13.5)):
+            for i in range(w_idx(s_sec), min(n_cap, w_idx(e_sec))):
+                probs_cap[i] = 0.9
+        spans_cap = srv.segment_audio_silero(audio_cap, probs_cap, sample_rate=16000, max_span_sec=10.0)
+        self.assertEqual(len(spans_cap), 2)
+        for start, end, _ in spans_cap:
+            self.assertLessEqual(end - start, 10.0)
+
     @unittest.skipIf(srv.np is None, "numpy not installed")
     def test_silero_vad_ovino_shapes_state_reset_and_service(self) -> None:
         np = srv.np
@@ -713,7 +1074,7 @@ class CutoffAndSileroVadTests(unittest.TestCase):
             (
                 "/opt/whisper/silero_vad.onnx",
                 "CPU",
-                {"INFERENCE_NUM_THREADS": 1, "NUM_STREAMS": 1, "PERFORMANCE_HINT": "LATENCY"},
+                {"INFERENCE_NUM_THREADS": 1, "NUM_STREAMS": "1", "PERFORMANCE_HINT": "LATENCY"},
             ),
         )
 
@@ -851,7 +1212,7 @@ class CutoffAndSileroVadTests(unittest.TestCase):
         self.assertEqual(
             compile_attempts,
             [
-                {"INFERENCE_NUM_THREADS": 1, "NUM_STREAMS": 1, "PERFORMANCE_HINT": "LATENCY"},
+                {"INFERENCE_NUM_THREADS": 1, "NUM_STREAMS": "1", "PERFORMANCE_HINT": "LATENCY"},
                 {"INFERENCE_NUM_THREADS": 1},
                 None,
             ],
@@ -958,12 +1319,13 @@ class CutoffAndSileroVadTests(unittest.TestCase):
         # Span 1 is ~0.8s (< 1.5s) -> no initial_prompt; Span 2 is ~2.0s (>= 1.5s) -> keeps initial_prompt.
         short_speech = sine_samples(0.8, amplitude=12000)
         long_speech = sine_samples(2.0, amplitude=12000)
-        wav = make_pcm16_wav(short_speech + ([0] * (2 * 16000)) + long_speech)
+        silence_gap = [0] * int(4.5 * 16000)
+        wav = make_pcm16_wav(short_speech + silence_gap + long_speech)
 
         win = srv.SILERO_WINDOW_SAMPLES
         short_end_w = int(0.8 * 16000 // win)
-        gap_end_w = int(2.8 * 16000 // win)
-        total_w = (len(short_speech) + 2 * 16000 + len(long_speech)) // win
+        gap_end_w = int(5.3 * 16000 // win)
+        total_w = (len(short_speech) + len(silence_gap) + len(long_speech)) // win
 
         class TwoSpanSilero:
             def probabilities(self, audio: object) -> list[float]:
@@ -1011,6 +1373,325 @@ class CutoffAndSileroVadTests(unittest.TestCase):
         self.assertEqual(len(out["segments"]), 1)
         self.assertGreater(out["segments"][0]["start"], 3.8)
         self.assertEqual(fake_pipe.calls[0][1]["language"], "<|en|>")
+        self.assertNotIn("temperature", fake_pipe.calls[0][1])
+        self.assertNotIn("num_beams", fake_pipe.calls[0][1])
+
+    def test_fast_mode_uses_greedy_without_temperature_and_drops_unsupported_kwargs(self) -> None:
+        unset = object()
+
+        class FakeFastPipeline:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def generate(
+                self,
+                audio: object,
+                *,
+                task: str = "transcribe",
+                return_timestamps: bool = True,
+                language: str | None = None,
+                temperature: object = unset,
+                do_sample: bool | None = None,
+                num_beams: int | None = None,
+            ) -> dict[str, object]:
+                self.calls.append(
+                    {
+                        "task": task,
+                        "return_timestamps": return_timestamps,
+                        "language": language,
+                        "temperature": temperature,
+                        "do_sample": do_sample,
+                        "num_beams": num_beams,
+                    }
+                )
+                return {
+                    "chunks": [{"timestamps": [0.0, 1.0], "text": "fast"}],
+                    "texts": ["fast"],
+                }
+
+        wav = make_pcm16_wav(sine_samples(1.0, amplitude=12000))
+        pipe_beam = FakeFastPipeline()
+        srv.WhisperService(pipeline=pipe_beam, vad_model=None).infer(
+            wav, {"language": "en", "vad": "false", "beam_size": "1"}
+        )
+        self.assertIs(pipe_beam.calls[0]["temperature"], unset)
+        self.assertIs(pipe_beam.calls[0]["do_sample"], False)
+        self.assertEqual(pipe_beam.calls[0]["num_beams"], 1)
+
+        pipe_temp = FakeFastPipeline()
+        srv.WhisperService(pipeline=pipe_temp, vad_model=None).infer(
+            wav, {"language": "en", "vad": "false", "temperature_inc": "0.0"}
+        )
+        self.assertIs(pipe_temp.calls[0]["temperature"], unset)
+        self.assertIs(pipe_temp.calls[0]["do_sample"], False)
+        self.assertEqual(pipe_temp.calls[0]["num_beams"], 1)
+
+        # Older OpenVINO builds rejecting temperature/do_sample/num_beams still work cleanly.
+        class FakeLegacyPipeline:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def generate(
+                self,
+                audio: object,
+                *,
+                task: str = "transcribe",
+                return_timestamps: bool = True,
+                language: str | None = None,
+            ) -> dict[str, object]:
+                self.calls.append({"task": task, "return_timestamps": return_timestamps, "language": language})
+                return {
+                    "chunks": [{"timestamps": [0.0, 1.0], "text": "legacy"}],
+                    "texts": ["legacy"],
+                }
+
+        legacy_pipe = FakeLegacyPipeline()
+        out = srv.WhisperService(pipeline=legacy_pipe, vad_model=None).infer(
+            wav, {"language": "en", "vad": "false", "beam_size": "1", "temperature_inc": "0.0"}
+        )
+        self.assertEqual(len(out["segments"]), 1)
+        self.assertEqual(legacy_pipe.calls[0]["language"], "<|en|>")
+
+    def test_load_silero_onnx_static_and_frontend_loader(self) -> None:
+        self.assertIsNone(srv._load_silero_onnx_static("/opt/whisper/silero_vad.bin"))
+
+        placed_shapes: dict[str, list[int]] = {}
+        placed_types: dict[str, str] = {}
+
+        class FakePartialShape:
+            def __init__(self, dims: list[int]) -> None:
+                self.dims = dims
+
+        class FakeInputModel:
+            def __init__(self) -> None:
+                self.places = {"input": "place_input", "state": "place_state", "sr": "place_sr"}
+
+            def get_place_by_tensor_name(self, name: str) -> str | None:
+                return self.places.get(name)
+
+            def set_partial_shape(self, place: str, pshape: FakePartialShape) -> None:
+                placed_shapes[place] = list(pshape.dims)
+
+            def set_element_type(self, place: str, etype: str) -> None:
+                placed_types[place] = etype
+
+        class FakeFrontEnd:
+            def __init__(self, fail_convert: bool = False) -> None:
+                self.fail_convert = fail_convert
+                self.loaded_path = ""
+                self.converted_model: object | None = None
+
+            def load(self, path: str) -> FakeInputModel:
+                self.loaded_path = path
+                return FakeInputModel()
+
+            def convert(self, im: FakeInputModel) -> object:
+                if self.fail_convert:
+                    raise RuntimeError("frontend conversion failed")
+                self.converted_model = im
+                return "converted-ov-model"
+
+        fake_fe = FakeFrontEnd()
+
+        class FakeFrontEndManager:
+            def load_by_framework(self, fw: str) -> FakeFrontEnd:
+                assert fw == "onnx"
+                return fake_fe
+
+        fake_ov = types.SimpleNamespace(
+            Type=types.SimpleNamespace(f32="f32", i64="i64"),
+            PartialShape=FakePartialShape,
+        )
+        fake_ov_fe = types.SimpleNamespace(FrontEndManager=FakeFrontEndManager)
+
+        with mock.patch.dict(
+            sys.modules, {"openvino": fake_ov, "openvino.frontend": fake_ov_fe}
+        ):
+            converted = srv._load_silero_onnx_static("/opt/whisper/silero_vad.onnx")
+
+        self.assertEqual(converted, "converted-ov-model")
+        self.assertEqual(fake_fe.loaded_path, "/opt/whisper/silero_vad.onnx")
+        self.assertEqual(
+            placed_shapes,
+            {"place_input": [1, 576], "place_state": [2, 1, 128], "place_sr": []},
+        )
+        self.assertEqual(
+            placed_types,
+            {"place_input": "f32", "place_state": "f32", "place_sr": "i64"},
+        )
+
+        # Conversion failures return None cleanly.
+        fake_fe_fail = FakeFrontEnd(fail_convert=True)
+
+        class FailingFEM:
+            def load_by_framework(self, fw: str) -> FakeFrontEnd:
+                return fake_fe_fail
+
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "openvino": fake_ov,
+                "openvino.frontend": types.SimpleNamespace(FrontEndManager=FailingFEM),
+            },
+        ):
+            self.assertIsNone(srv._load_silero_onnx_static("/opt/whisper/silero_vad.onnx"))
+
+        # SileroVADOvino uses frontend_loader result when present and falls back to onnx_path on None.
+        compiled_sources: list[object] = []
+
+        class RecordingCore:
+            def compile_model(
+                self, model_src: object, device: str, config: dict[str, object] | None = None
+            ) -> object:
+                compiled_sources.append(model_src)
+                return types.SimpleNamespace(inputs=[], outputs=[])
+
+        if srv.np is not None:
+            srv.SileroVADOvino(
+                "/opt/whisper/silero_vad.onnx",
+                core=RecordingCore(),
+                frontend_loader=lambda p: "static-ov-model",
+            )
+            srv.SileroVADOvino(
+                "/opt/whisper/silero_vad.onnx",
+                core=RecordingCore(),
+                frontend_loader=lambda p: None,
+            )
+            self.assertEqual(
+                compiled_sources,
+                ["static-ov-model", "/opt/whisper/silero_vad.onnx"],
+            )
+
+    def test_load_silero_vad_logs_single_line_on_multiline_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            onnx_file = os.path.join(tmp, "silero_vad.onnx")
+            Path(onnx_file).write_bytes(b"fake-onnx")
+            missing_default = os.path.join(tmp, "missing_default.onnx")
+
+            def failing_vad(path: str, threads: int = 0) -> object:
+                raise RuntimeError("\n  first error summary  \nsecond detail line\nstack trace line")
+
+            err_buf = io.StringIO()
+            with mock.patch.object(srv, "DEFAULT_SILERO_ONNX", missing_default):
+                with mock.patch.object(sys, "stderr", err_buf):
+                    model = srv.load_silero_vad(
+                        vad_arg=onnx_file, threads=1, env={}, vad_cls=failing_vad
+                    )
+
+            self.assertIsNone(model)
+            logged = err_buf.getvalue().splitlines()
+            self.assertEqual(len(logged), 1)
+            self.assertIn("first error summary", logged[0])
+            self.assertNotIn("second detail line", err_buf.getvalue())
+            self.assertNotIn("stack trace line", err_buf.getvalue())
+
+    @unittest.skipIf(srv.np is None, "numpy not installed")
+    def test_silero_vad_ovino_nonstandard_output_port_name(self) -> None:
+        np = srv.np
+        prob_port_name = "/model/ReduceMean_output_0"
+
+        class FakeTensor:
+            def __init__(self, data: Any, shared_memory: bool = False) -> None:
+                self.shared_memory = shared_memory
+                self.data = data if shared_memory else data.copy()
+
+        class FakePort:
+            def __init__(self, name: str, shape: tuple[int, ...]) -> None:
+                self.any_name = name
+                self.shape = shape
+
+        class CustomPortReq:
+            def __init__(self, fail_bind: bool = False) -> None:
+                self.fail_bind = fail_bind
+                self.in_tensors: dict[str, FakeTensor] = {}
+                self.requested_out_ports: list[str] = []
+                self.out_tensors: dict[str, FakeTensor] = {
+                    prob_port_name: FakeTensor(np.zeros((1, 1), dtype=np.float32)),
+                    "stateN": FakeTensor(np.zeros((2, 1, 128), dtype=np.float32)),
+                }
+                self.zero_arg_calls = 0
+                self.feed_calls = 0
+
+            def set_tensor(self, name: str, tensor: FakeTensor) -> None:
+                if self.fail_bind:
+                    raise RuntimeError("set_tensor unsupported")
+                self.in_tensors[name] = tensor
+
+            def get_tensor(self, name: str) -> FakeTensor:
+                self.requested_out_ports.append(name)
+                return self.out_tensors[name]
+
+            def infer(self, feeds: dict[str, object] | None = None) -> dict[str, object] | None:
+                if feeds is None:
+                    self.zero_arg_calls += 1
+                    x = self.in_tensors["input"].data
+                    st = self.in_tensors["state"].data
+                    prob = 0.92 if float(np.max(np.abs(x[:, -srv.SILERO_WINDOW_SAMPLES:]))) > 0.2 else 0.04
+                    self.out_tensors[prob_port_name].data = np.array([[prob]], dtype=np.float32)
+                    self.out_tensors["stateN"].data = np.array(st + 1.0, dtype=np.float32)
+                    return None
+                self.feed_calls += 1
+                x = feeds["input"]
+                st = feeds["state"]
+                prob = 0.92 if float(np.max(np.abs(x[:, -srv.SILERO_WINDOW_SAMPLES:]))) > 0.2 else 0.04
+                return {
+                    prob_port_name: np.array([[prob]], dtype=np.float32),
+                    "stateN": st + 1.0,
+                }
+
+        class CustomPortCompiled:
+            def __init__(self, fail_bind: bool = False) -> None:
+                self.inputs = [
+                    FakePort("input", (1, 576)),
+                    FakePort("state", (2, 1, 128)),
+                    FakePort("sr", ()),
+                ]
+                self.outputs = [
+                    FakePort(prob_port_name, (1, 1)),
+                    FakePort("stateN", (2, 1, 128)),
+                ]
+                self.fail_bind = fail_bind
+                self.reqs: list[CustomPortReq] = []
+
+            def create_infer_request(self) -> CustomPortReq:
+                req = CustomPortReq(fail_bind=self.fail_bind)
+                self.reqs.append(req)
+                return req
+
+        class CustomPortCore:
+            def __init__(self, compiled_obj: CustomPortCompiled) -> None:
+                self.compiled_obj = compiled_obj
+
+            def compile_model(
+                self, model_src: object, device: str, config: dict[str, object] | None = None
+            ) -> CustomPortCompiled:
+                return self.compiled_obj
+
+        w1 = np.full(srv.SILERO_WINDOW_SAMPLES, 0.05, dtype=np.float32)
+        w2 = np.full(srv.SILERO_WINDOW_SAMPLES, 0.5, dtype=np.float32)
+        audio = np.concatenate((w1, w2))
+        fake_ov = types.SimpleNamespace(Tensor=FakeTensor)
+
+        compiled_zc = CustomPortCompiled(fail_bind=False)
+        vad_zc = srv.SileroVADOvino("/opt/whisper/silero_vad.onnx", core=CustomPortCore(compiled_zc))
+        with mock.patch.dict(sys.modules, {"openvino": fake_ov}):
+            probs_zc = vad_zc.probabilities(audio)
+
+        self.assertEqual(len(probs_zc), 2)
+        self.assertAlmostEqual(probs_zc[0], 0.04, places=4)
+        self.assertAlmostEqual(probs_zc[1], 0.92, places=4)
+        self.assertEqual(compiled_zc.reqs[0].zero_arg_calls, 2)
+        self.assertEqual(compiled_zc.reqs[0].feed_calls, 0)
+        self.assertEqual(compiled_zc.reqs[0].requested_out_ports, [prob_port_name, "stateN"])
+
+        compiled_fb = CustomPortCompiled(fail_bind=True)
+        vad_fb = srv.SileroVADOvino("/opt/whisper/silero_vad.onnx", core=CustomPortCore(compiled_fb))
+        with mock.patch.dict(sys.modules, {"openvino": fake_ov}):
+            probs_fb = vad_fb.probabilities(audio)
+
+        self.assertEqual(probs_fb, probs_zc)
+        self.assertEqual(compiled_fb.reqs[0].zero_arg_calls, 0)
+        self.assertEqual(compiled_fb.reqs[0].feed_calls, 2)
 
 
 if __name__ == "__main__":

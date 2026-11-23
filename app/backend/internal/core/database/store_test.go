@@ -293,6 +293,64 @@ func TestSnapshot(t *testing.T) {
 	}
 }
 
+func TestReadPoolConcurrency(t *testing.T) {
+	s, _ := openTest(t, Options{})
+	if got := s.Read().Stats().MaxOpenConnections; got != 16 {
+		t.Fatalf("main read pool MaxOpenConnections = %d, want 16", got)
+	}
+	if got := s.ReadEvents().Stats().MaxOpenConnections; got != 4 {
+		t.Fatalf("events read pool MaxOpenConnections = %d, want 4", got)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	const n = 16
+	ready := make(chan struct{})
+	release := make(chan struct{})
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			conn, err := s.Read().Conn(ctx)
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer conn.Close()
+			var one int
+			if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
+				errs <- err
+				return
+			}
+			ready <- struct{}{}
+			<-release
+		}()
+	}
+	for range n {
+		select {
+		case err := <-errs:
+			close(release)
+			wg.Wait()
+			t.Fatalf("concurrent read failed: %v", err)
+		case <-ready:
+		case <-ctx.Done():
+			close(release)
+			wg.Wait()
+			t.Fatalf("timed out waiting for %d simultaneous read connections: %v", n, ctx.Err())
+		}
+	}
+	close(release)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent read error: %v", err)
+		}
+	}
+}
+
 // A background reader that outlives the server (Explore's genre fill) gets an
 // error after Close, never a nil pointer panic; Close twice is safe.
 func TestReadAfterCloseErrors(t *testing.T) {

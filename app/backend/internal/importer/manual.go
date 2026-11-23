@@ -699,8 +699,12 @@ func (im *Importer) recordByHand(ctx context.Context, r *ByHandResult, src, targ
 			return err
 		}
 		f.Protected = protected
-		if _, err := tx.Exec(`DELETE FROM files WHERE version_id = ? AND relative_path IN (?, ?) AND (slot_ids = '[]' OR origin = 'found')`,
-			ver.ID, f.RelativePath, srcRel); err != nil {
+		var oldID int64
+		if rec.old != nil {
+			oldID = rec.old.ID
+		}
+		if _, err := tx.Exec(`DELETE FROM files WHERE version_id = ? AND relative_path IN (?, ?) AND id != ? AND (slot_ids = '[]' OR origin = 'found' OR state != 'present')`,
+			ver.ID, f.RelativePath, srcRel, oldID); err != nil {
 			return err
 		}
 		if err := mediafiles.EndSeasonsWaitTx(ctx, tx, ti.ID); err != nil {

@@ -29,7 +29,23 @@ export interface RequestOptions {
 
 type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
 
-type Follower<T> = { res?: (v: T) => void; rej?: (e: unknown) => void; signal?: AbortSignal; stop?: () => void };
+type SharedEntry = {
+	p: Promise<unknown>;
+	done: number;
+	keep: number;
+	ctl: AbortController;
+	waiters: number;
+	untracked: boolean;
+};
+
+type Follower<T> = {
+	res?: (v: T) => void;
+	rej?: (e: unknown) => void;
+	signal?: AbortSignal;
+	stop?: () => void;
+	entry?: SharedEntry;
+	onCancel?: () => void;
+};
 
 export interface EarlyAsks {
 	at: number;
@@ -126,9 +142,10 @@ export function createClient(fetchFn: FetchFn = (i, o) => fetch(i, o), early: ()
 		try {
 			res = ahead ? await ahead.catch(ask) : await ask();
 		} catch (e) {
-			if (e instanceof DOMException && e.name === 'AbortError') throw e;
+			if (opts.signal?.aborted || (e instanceof DOMException && e.name === 'AbortError')) throw e;
 			throw new ApiError(t('core.api.notAnswering'), 0);
 		}
+		if (opts.signal?.aborted) throw opts.signal.reason ?? new DOMException('Aborted', 'AbortError');
 		seen?.(res);
 		if (res.status === 204) return undefined as T;
 		let data: Record<string, unknown> = {};
@@ -161,20 +178,31 @@ export function createClient(fetchFn: FetchFn = (i, o) => fetch(i, o), early: ()
 		return data as T;
 	}
 
-	const shared = new Map<string, { p: Promise<unknown>; done: number; keep: number }>();
+	const shared = new Map<string, SharedEntry>();
 
-	function start(path: string, entry: { keep: number }): Promise<unknown> {
-		return Promise.resolve().then(() => request<unknown>(path, {}, (res) => (entry.keep = keepFor(res.headers.get('Cache-Control')))));
+	function start(path: string, entry: SharedEntry): Promise<unknown> {
+		return Promise.resolve().then(() =>
+			request<unknown>(path, { signal: entry.ctl.signal }, (res) => (entry.keep = keepFor(res.headers.get('Cache-Control'))))
+		);
 	}
 
 	function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+		if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
 		const now = Date.now();
 		let hit = shared.get(path);
 		if (!hit || (hit.done && (!hit.keep || now - hit.done > hit.keep))) {
-			const entry = { p: Promise.resolve<unknown>(undefined), done: 0, keep: KEEP_MOMENT };
+			const entry: SharedEntry = {
+				p: Promise.resolve<unknown>(undefined),
+				done: 0,
+				keep: KEEP_MOMENT,
+				ctl: new AbortController(),
+				waiters: 0,
+				untracked: false
+			};
 			entry.p = start(path, entry);
 			entry.p.then(
 				(v) => {
+					if (entry.ctl.signal.aborted) return;
 					entry.done = Date.now();
 					if (isIncomplete(v) || isFilling(v) || (!!v && typeof v === 'object' && (v as { building?: unknown }).building === true)) entry.keep = 0;
 				},
@@ -183,8 +211,11 @@ export function createClient(fetchFn: FetchFn = (i, o) => fetch(i, o), early: ()
 			shared.set(path, entry);
 			hit = entry;
 		}
-		if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
-		return follow<T>(hit.p, signal);
+		const target = hit;
+		return follow<T>(target, signal, () => {
+			if (shared.get(path) === target) shared.delete(path);
+			target.ctl.abort(signal?.reason);
+		});
 	}
 
 	function change<T>(path: string, opts: RequestOptions): Promise<T> {
@@ -249,28 +280,37 @@ export function message(e: unknown): string {
 }
 
 // Each caller gets its own copy so one cannot change what another reads, and its own abort.
-function follow<T>(shared: Promise<unknown>, signal?: AbortSignal): Promise<T> {
-	const f: Follower<T> = {};
+function follow<T>(entry: SharedEntry, signal: AbortSignal | undefined, onCancel: () => void): Promise<T> {
+	entry.waiters++;
+	if (!signal) entry.untracked = true;
+	const f: Follower<T> = { entry, onCancel };
 	const out = new Promise<T>((res, rej) => {
 		f.res = res;
 		f.rej = rej;
 	});
-	shared.then(
-		(v) => settle(f, true, v === undefined ? v : structuredClone(v)),
-		(e) => settle(f, false, e)
+	entry.p.then(
+		(v) => settle(f, true, v === undefined ? v : structuredClone(v), false),
+		(e) => settle(f, false, e, false)
 	);
 	if (signal) {
 		f.signal = signal;
-		f.stop = () => settle(f, false, f.signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+		f.stop = () => settle(f, false, f.signal?.reason ?? new DOMException('Aborted', 'AbortError'), true);
 		signal.addEventListener('abort', f.stop, { once: true });
 	}
 	return out;
 }
 
-function settle<T>(f: Follower<T>, ok: boolean, v: unknown) {
-	const { res, rej, signal, stop } = f;
-	f.res = f.rej = f.signal = f.stop = undefined;
+function settle<T>(f: Follower<T>, ok: boolean, v: unknown, aborted: boolean) {
+	if (!f.res && !f.rej) return;
+	const { res, rej, signal, stop, entry, onCancel } = f;
+	f.res = f.rej = f.signal = f.stop = f.entry = f.onCancel = undefined;
 	if (signal && stop) signal.removeEventListener('abort', stop);
+	if (entry) {
+		entry.waiters--;
+		if (aborted && entry.done === 0 && entry.waiters === 0 && !entry.untracked) {
+			onCancel?.();
+		}
+	}
 	if (ok) res?.(v as T);
 	else rej?.(v);
 }

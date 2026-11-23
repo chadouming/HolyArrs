@@ -72,7 +72,7 @@ test('Anime: a Release named by running number 13 is matched to S02E01, picked, 
 
 	// Add it from Search with every season kept and the running-number order.
 	await openFromSearch(page, 'hoshikage', show, 'show');
-	await page.getByRole('button', { name: `Add ${show}` }).click();
+	await page.getByRole('button', { name: `Add to library: ${show}` }).click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByLabel('Seasons to keep up to date').selectOption('all');
 	await dialog.getByLabel('Episode order').selectOption('absolute');

@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Cleared from the Downloader",
 	"frame.feeds.clearStill": "Not cleared yet",
 	"frame.error.pageGone": "This page doesn't exist. The link may be old or mistyped.",
-	"frame.nav.subtitles": "Subtitles"
+	"frame.nav.subtitles": "Subtitles",
+	"frame.nav.transcode": "Transcode"
 }

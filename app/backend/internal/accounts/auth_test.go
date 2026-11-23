@@ -249,6 +249,36 @@ func TestSessionRotatesWhileInUse(t *testing.T) {
 	}
 }
 
+func TestRetiredCookieDoesNotClobberNewCookie(t *testing.T) {
+	f := setup(t, Options{})
+	c := client(t)
+	setupOwner(t, f, c)
+	first := c.Jar.Cookies(mustURL(f.srv.URL))[0].Value
+	f.clock.add(RotateEvery + time.Minute)
+	if resp, _ := call(t, c, "GET", f.srv.URL+"/api/v1/titles", "", nil); resp.StatusCode != 200 {
+		t.Fatal(resp.StatusCode)
+	}
+	second := c.Jar.Cookies(mustURL(f.srv.URL))[0].Value
+	if second == first {
+		t.Fatal("session id not rotated")
+	}
+	f.clock.add(rotateGrace + time.Second)
+	old := client(t)
+	old.Jar.SetCookies(mustURL(f.srv.URL), []*http.Cookie{{Name: CookieName, Value: first}})
+	resp, _ := call(t, old, "GET", f.srv.URL+"/api/v1/titles", "", nil)
+	if resp.StatusCode != 401 {
+		t.Fatalf("retired cookie past grace: %d", resp.StatusCode)
+	}
+	for _, ck := range resp.Header.Values("Set-Cookie") {
+		if strings.Contains(ck, CookieName+"=") {
+			t.Fatalf("retired cookie cleared newer cookie via Set-Cookie: %q", ck)
+		}
+	}
+	if resp, _ := call(t, c, "GET", f.srv.URL+"/api/v1/titles", "", nil); resp.StatusCode != 200 {
+		t.Fatalf("newer rotated cookie failed after retired cookie rejected: %d", resp.StatusCode)
+	}
+}
+
 func TestIdleAndAbsoluteExpiry(t *testing.T) {
 	f := setup(t, Options{})
 	c := client(t)

@@ -19,6 +19,8 @@
 	import { keepPersonPic, theme, setTheme, type ThemeChoice, backdrop, loadProfile, forgetProfile } from '#lib/accounts/index.ts';
 	import { live } from '#lib/core/live.svelte.ts';
 	import { dlPush, decisions, refreshDecisions, activeDownloads, refreshActiveDownloads, resetActiveDownloads, dlTop } from '#lib/downloads/index.ts';
+	import { activeSubtitles, refreshActiveSubtitles, resetActiveSubtitles } from '#lib/subtitles/index.ts';
+	import { activeTranscode, refreshActiveTranscode, resetActiveTranscode } from '#lib/transcode/index.ts';
 	import { alertsPanel, toasts } from '#lib/core/toasts.svelte.ts';
 	import { decisionPins, feedPins, startBellFeeds } from './(frame)/bell-feeds.svelte.ts';
 	import { inbox, refreshInbox } from '#lib/core/inbox.svelte.ts';
@@ -79,7 +81,9 @@
 		if (!settingsOn) return;
 		void refreshSettingsStatus();
 		const off = live.on('source', () => void refreshSettingsStatus());
-		const t = setInterval(() => void refreshSettingsStatus(), 120_000);
+		const t = setInterval(() => {
+			if (document.visibilityState === 'visible') void refreshSettingsStatus();
+		}, 120_000);
 		return () => {
 			off();
 			clearInterval(t);
@@ -105,6 +109,8 @@
 			waitingAsks: inbox.waiting,
 			decisions: decisions.count,
 			active: activeDownloads,
+			subtitles: activeSubtitles,
+			transcode: activeTranscode,
 			unread: inbox.unread,
 			kid: session.kid,
 			settingsAttention
@@ -203,6 +209,7 @@
 	let stopIdle: (() => void) | undefined;
 	const menuPaths = () => [...new Set([...document.querySelectorAll<HTMLAnchorElement>('nav a[href^="/"]')].map((a) => a.getAttribute('href') ?? '').filter((h) => h && !h.includes('?')))];
 	onMount(() => {
+		live.onUnauthorized(() => session.lost());
 		void session.load();
 		readLibraryResumeLinks();
 		const mq = [matchMedia('(min-width: 768px)'), matchMedia('(min-width: 1024px)')];
@@ -211,7 +218,10 @@
 			if (mode !== 'tablet') overlayOpen = false;
 		};
 		mq.forEach((m) => m.addEventListener('change', sync));
-		return () => mq.forEach((m) => m.removeEventListener('change', sync));
+		return () => {
+			live.onUnauthorized(null);
+			mq.forEach((m) => m.removeEventListener('change', sync));
+		};
 	});
 
 	// ⌘\ or Ctrl+\ toggles the sidebar; ⌘K, Ctrl+K and / open the Search page; Escape closes the overlay.
@@ -257,7 +267,7 @@
 	// The server went away (restart, update): Orbit with Reconnecting… until it answers.
 	$effect(() => {
 		if (live.status.state === 'reconnecting') showReconnecting();
-		else if (live.status.state === 'live') hideReconnecting();
+		else if (live.status.state === 'live' || live.status.state === 'off') hideReconnecting();
 	});
 	beforeNavigate((nav) => {
 		if (!nav.willUnload) navWatch(nav.complete, () => navigating.to !== null);
@@ -348,8 +358,8 @@
 		// Everyone signed in watches their own downloads; the rest of Downloads is for managers.
 		if (p === '/downloads') return true;
 		if (p.startsWith('/downloads')) return allowed('manage_library');
-		// Subtitles sits under Activity, for people who look after the Library.
-		if (p === '/subtitles') return allowed('manage_library');
+		// Subtitles and Transcode sit under Activity, for people who look after the Library.
+		if (p === '/subtitles' || p === '/transcode') return allowed('manage_library');
 		if (p === '/library/held' || p === '/library/turned-down' || p === '/library/rename' || p === '/library/import' || p === '/library/import-files' || p === '/library/missing-subtitles' || p === '/library/copies' || p === '/library/stats') return allowed('manage_library');
 		if (p.startsWith('/requests')) return allowed('wishlist');
 		// Status sits under Manage, as in the side menu.
@@ -384,7 +394,9 @@
 		void path;
 		if (session.s.state !== 'signed_in') return;
 		void refreshParts();
-		const t = setInterval(() => void refreshParts(), 60_000);
+		const t = setInterval(() => {
+			if (document.visibilityState === 'visible') void refreshParts();
+		}, 60_000);
 		return () => clearInterval(t);
 	});
 
@@ -394,7 +406,9 @@
 		void path;
 		if (!inboxOn) return;
 		void refreshInbox();
-		const t = setInterval(() => void refreshInbox(), 60_000);
+		const t = setInterval(() => {
+			if (document.visibilityState === 'visible') void refreshInbox();
+		}, 60_000);
 		return () => clearInterval(t);
 	});
 
@@ -405,7 +419,9 @@
 		if (!decisionsOn) return;
 		void refreshDecisions();
 		const off = live.on('slot', () => void refreshDecisions());
-		const t = setInterval(() => void refreshDecisions(), 60_000);
+		const t = setInterval(() => {
+			if (document.visibilityState === 'visible') void refreshDecisions();
+		}, 60_000);
 		return () => {
 			off();
 			clearInterval(t);
@@ -436,6 +452,94 @@
 		}, 15_000);
 		const visible = () => {
 			if (document.visibilityState === 'visible') void refreshActiveDownloads();
+		};
+		document.addEventListener('visibilitychange', visible);
+		return () => {
+			offs.forEach((off) => off());
+			clearInterval(poll);
+			clearTimeout(timer);
+			document.removeEventListener('visibilitychange', visible);
+		};
+	});
+
+	// Active subtitle jobs and failures for the Subtitles row: same live-push throttle and 15 s visible-tab poll as Downloads.
+	$effect(() => {
+		if (!decisionsOn || offPartName(partsNow.answer, '/subtitles')) {
+			resetActiveSubtitles();
+			return;
+		}
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let last = 0;
+		const soon = () => {
+			if (timer) return;
+			timer = setTimeout(() => {
+				timer = undefined;
+				last = Date.now();
+				void refreshActiveSubtitles();
+			}, Math.max(800, last + 10_000 - Date.now()));
+		};
+		void refreshActiveSubtitles();
+		const offs = [
+			live.on('job', (d) => {
+				const j = d as { kind?: string; Kind?: string };
+				const kind = String(j?.kind ?? j?.Kind ?? '');
+				if (kind.startsWith('subtitle_')) soon();
+			}),
+			live.on('event', (d) => {
+				const kind = String((d as { Kind?: string })?.Kind ?? '');
+				if (kind.startsWith('subtitle_')) soon();
+			}),
+			live.on('resync', soon)
+		];
+		const poll = setInterval(() => {
+			if (document.visibilityState === 'visible') void refreshActiveSubtitles();
+		}, 15_000);
+		const visible = () => {
+			if (document.visibilityState === 'visible') void refreshActiveSubtitles();
+		};
+		document.addEventListener('visibilitychange', visible);
+		return () => {
+			offs.forEach((off) => off());
+			clearInterval(poll);
+			clearTimeout(timer);
+			document.removeEventListener('visibilitychange', visible);
+		};
+	});
+
+	// Active transcode jobs and failures for the Transcode row: same live-push throttle and 15 s visible-tab poll.
+	$effect(() => {
+		if (!decisionsOn || offPartName(partsNow.answer, '/transcode')) {
+			resetActiveTranscode();
+			return;
+		}
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let last = 0;
+		const soon = () => {
+			if (timer) return;
+			timer = setTimeout(() => {
+				timer = undefined;
+				last = Date.now();
+				void refreshActiveTranscode();
+			}, Math.max(800, last + 10_000 - Date.now()));
+		};
+		void refreshActiveTranscode();
+		const offs = [
+			live.on('job', (d) => {
+				const j = d as { kind?: string; Kind?: string };
+				const kind = String(j?.kind ?? j?.Kind ?? '');
+				if (kind.startsWith('transcode_')) soon();
+			}),
+			live.on('event', (d) => {
+				const kind = String((d as { Kind?: string })?.Kind ?? '');
+				if (kind === 'transcode_done') soon();
+			}),
+			live.on('resync', soon)
+		];
+		const poll = setInterval(() => {
+			if (document.visibilityState === 'visible') void refreshActiveTranscode();
+		}, 15_000);
+		const visible = () => {
+			if (document.visibilityState === 'visible') void refreshActiveTranscode();
 		};
 		document.addEventListener('visibilitychange', visible);
 		return () => {
@@ -478,7 +582,7 @@
 			<span class="who" class:only={collapsed}>
 				<Avatar name={shownName} src={session.s.avatar} size={36} />
 				{#if !collapsed}
-					<span class="who-text"><span class="who-name">{shownName}</span><span class="who-role">{roleWord}</span></span>
+					<span class="who-text"><span class="who-name">{shownName}</span>{' '}<span class="who-role" aria-hidden="true">{roleWord}</span></span>
 					<Icon name="chevronUpDown" size={15} />
 				{/if}
 			</span>
@@ -487,7 +591,7 @@
 	<!-- Recent alerts: a bell beside your name, with how many arrived since you last looked. -->
 	<button type="button" class="alerts-bell" class:only={collapsed} data-alerts-open aria-label={unseenAlerts ? t('frame.layout.alertsNew', { n: unseenAlerts }) : t('frame.layout.alerts')} aria-expanded={alertsPanel.open} onclick={() => (alertsPanel.open = !alertsPanel.open)}>
 		<Icon name="bell" size={18} />
-		{#if unseenAlerts}<span class="alerts-count" class:bad={hasFailAlert}>{unseenAlerts > 9 ? '9+' : unseenAlerts}</span>{/if}
+		{#if unseenAlerts}<span class="alerts-count" class:bad={hasFailAlert} aria-hidden="true">{unseenAlerts > 9 ? '9+' : unseenAlerts}</span>{/if}
 	</button>
 {/snippet}
 

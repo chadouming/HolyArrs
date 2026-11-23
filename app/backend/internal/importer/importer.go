@@ -140,6 +140,11 @@ func isSample(path string, p releasename.Result) bool {
 			return true
 		}
 	}
+	for _, part := range strings.Split(filepath.ToSlash(strings.ToLower(filepath.Dir(path))), "/") {
+		if part == "preview" || part == "previews" {
+			return true
+		}
+	}
 	base := strings.ToLower(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
 	for _, w := range strings.FieldsFunc(base, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
 		if w == "sample" {
@@ -226,6 +231,11 @@ func Plan(cands []Candidate, t Target) []mediafiles.PlanStep {
 			if m.Title == nil {
 				if gp, gm, ok := withoutLeadGroup(filepath.Base(c.Path), releasename.Hints{Size: c.Size}, []mediafiles.TitleRef{ref}); ok {
 					p, m = gp, gm
+				}
+			}
+			if m.Title == nil {
+				if ap, am, ok := matchSceneAbbrev(filepath.Base(c.Path), releasename.Hints{Size: c.Size}, []mediafiles.TitleRef{ref}, filepath.Base(filepath.Dir(c.Path))); ok {
+					p, m = ap, am
 				}
 			}
 			s.Confidence = confidence(m.Conf)

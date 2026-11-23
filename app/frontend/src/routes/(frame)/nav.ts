@@ -36,6 +36,10 @@ export interface NavInput {
 	decisions: number;
 	/** Downloads moving now and their average percent (staff only). */
 	active?: { count: number; percent: number };
+	/** Active subtitle jobs and failures (staff only). */
+	subtitles?: { count: number; percent: number; failed?: number };
+	/** Active transcode jobs and failures (staff only). */
+	transcode?: { count: number; percent: number; failed?: number };
 	unread: number;
 	/** A Kid (age-rating limit) never sees music: it carries no rating. */
 	kid?: boolean;
@@ -103,7 +107,9 @@ export function buildNav(input: NavInput): NavSection[] {
 						{ href: '/downloads', label: t('frame.nav.downloads'), icon: 'download', need: 'manage_library', also: ['/downloads/decide'], ...downloadsBadge(input) },
 						{ href: '/downloads/history', label: t('frame.nav.history'), icon: 'clock', need: 'manage_library' },
 						// Subtitles: what is missing, what can make it, and the jobs at work on it.
-						{ href: '/subtitles', label: t('frame.nav.subtitles'), icon: 'subtitle', need: 'manage_library' }
+						{ href: '/subtitles', label: t('frame.nav.subtitles'), icon: 'subtitle', need: 'manage_library', ...subtitlesBadge(input) },
+						// Transcode: library conversion progress, active encodes, and hardware queue.
+						{ href: '/transcode', label: t('frame.nav.transcode'), icon: 'transcode', need: 'manage_library', ...transcodeBadge(input) }
 					]
 				: []
 		},
@@ -209,4 +215,18 @@ function downloadsBadge(input: NavInput): Pick<NavItem, 'badge' | 'badgeLabel' |
 	const a = input.active;
 	if (a && a.count > 0) return { badge: a.count, badgeLabel: t('frame.nav.active', { n: a.count, percent: a.percent }), ring: a.percent };
 	return { badge: input.decisions, badgeLabel: t('frame.nav.decide', { n: input.decisions }) };
+}
+
+function subtitlesBadge(input: NavInput): Pick<NavItem, 'badge' | 'badgeLabel' | 'ring' | 'dot'> {
+	const s = input.subtitles;
+	if (s && s.count > 0) return { badge: s.count, badgeLabel: t('frame.nav.active', { n: s.count, percent: s.percent }), ring: s.percent };
+	if (s && s.count === 0 && (s.failed ?? 0) > 0) return { dot: true };
+	return {};
+}
+
+function transcodeBadge(input: NavInput): Pick<NavItem, 'badge' | 'badgeLabel' | 'ring' | 'dot'> {
+	const tc = input.transcode;
+	if (tc && tc.count > 0) return { badge: tc.count, badgeLabel: t('frame.nav.active', { n: tc.count, percent: tc.percent }), ring: tc.percent };
+	if (tc && tc.count === 0 && (tc.failed ?? 0) > 0) return { dot: true };
+	return {};
 }

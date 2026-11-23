@@ -166,7 +166,7 @@ func (m *Manager) RemoveSaid(ctx context.Context, downloadID int64, c RemoveChoi
 		}
 		if c.TurnDown && next.ReleaseID != nil {
 			if _, err := tx.Exec(`UPDATE releases SET state = 'turned_down', hold_until = NULL,
-				verdict = json_set(COALESCE(verdict, '{}'), '$.turned_down_reason', ?), updated_at = ? WHERE id = ?`,
+				verdict = json_remove(json_set(COALESCE(verdict, '{}'), '$.turned_down_reason', ?), '$.turned_down_slot_ids'), updated_at = ? WHERE id = ?`,
 				"the download was "+reason, database.FormatTime(m.now()), *next.ReleaseID); err != nil {
 				return err
 			}
@@ -380,7 +380,7 @@ func (m *Manager) failed(ctx context.Context, dr domain.Downloader, old, next do
 		}
 		if replace && next.ReleaseID != nil {
 			if _, err := tx.Exec(`UPDATE releases SET state = 'turned_down', hold_until = NULL,
-				verdict = json_set(COALESCE(verdict, '{}'), '$.turned_down_reason', ?), updated_at = ? WHERE id = ?`,
+				verdict = json_remove(json_set(COALESCE(verdict, '{}'), '$.turned_down_reason', ?), '$.turned_down_slot_ids'), updated_at = ? WHERE id = ?`,
 				"the download failed: "+reason, database.FormatTime(m.now()), *next.ReleaseID); err != nil {
 				return err
 			}

@@ -29,35 +29,43 @@ const GPUParallel = 8
 
 // GPUContext is the context, in tokens, of each slot of a runner on a
 // graphics card: room for one chunk and its answer.
-const GPUContext = 2048
+const GPUContext = 4096
 
 // GPUParallelFor chooses the parallel slot count for a graphics card with
-// memoryMB of VRAM and a model requiring modelNeedBytes.
-func GPUParallelFor(memoryMB int, modelNeedBytes uint64) int {
-	if memoryMB <= 0 {
-		return GPUParallel
+// availMB of available VRAM and a model requiring modelNeedBytes.
+func GPUParallelFor(availMB int, modelNeedBytes uint64) int {
+	if availMB <= 0 {
+		return 4
 	}
 	if modelNeedBytes >= 4<<30 {
 		switch {
-		case memoryMB >= 10000:
+		case availMB >= 9500:
+			return 8
+		case availMB >= 7500:
 			return 6
-		case memoryMB >= 7000:
+		case availMB >= 6000:
 			return 4
-		case memoryMB >= 5000:
+		case availMB >= 4800:
 			return 2
 		default:
 			return 1
 		}
 	}
 	switch {
-	case memoryMB >= 10000:
+	case availMB >= 8500:
+		return 12
+	case availMB >= 6500:
+		return 10
+	case availMB >= 4400:
 		return 8
-	case memoryMB >= 7000:
+	case availMB >= 3100:
 		return 6
-	case memoryMB >= 5000:
+	case availMB >= 2400:
 		return 4
-	default:
+	case availMB >= 2000:
 		return 2
+	default:
+		return 1
 	}
 }
 
@@ -114,26 +122,39 @@ func (c *Client) take(skip map[int]bool) (int, Target, func(), bool) {
 		c.busy, c.downTill = make([]int, len(ts)), make([]time.Time, len(ts))
 	}
 	best := -1
-	better := func(i int) bool {
-		if best < 0 {
-			return true
-		}
-		di, db := time.Now().Before(c.downTill[i]), time.Now().Before(c.downTill[best])
-		if di != db {
-			return !di
-		}
-		return ts[i].Opts.slots()-c.busy[i] > ts[best].Opts.slots()-c.busy[best]
-	}
+	bestFree := 0
+	now := time.Now()
 	for i := range ts {
-		if !skip[i] && better(i) {
-			best = i
+		if skip[i] {
+			continue
+		}
+		load := c.busy[i]
+		if ts[i].Runner != nil {
+			load = ts[i].Runner.Load()
+		}
+		free := ts[i].Opts.slots() - load
+		if best < 0 {
+			best, bestFree = i, free
+			continue
+		}
+		di, db := now.Before(c.downTill[i]), now.Before(c.downTill[best])
+		if di != db {
+			if !di {
+				best, bestFree = i, free
+			}
+			continue
+		}
+		if free > bestFree {
+			best, bestFree = i, free
 		}
 	}
 	if best < 0 {
 		return 0, Target{}, func() {}, false
 	}
 	c.busy[best]++
+	rel := ts[best].Runner.Reserve()
 	return best, ts[best], func() {
+		rel()
 		c.mu.Lock()
 		c.busy[best]--
 		c.mu.Unlock()

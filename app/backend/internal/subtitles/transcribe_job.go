@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/jobs"
 	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
+	"github.com/HolyArrs/holyarrs/app/backend/internal/mediafiles"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/container"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/subtext"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/transcribe"
@@ -84,7 +87,9 @@ func (s *Service) Transcriber(ctx context.Context) Transcriber {
 	}
 	speech, ok1 := s.speechModel(ctx)
 	vad, ok2 := builtin.ByKind(builtin.KindVAD)
-	t.Model = speech.Name
+	if ok1 {
+		t.Model, _, _, _, _, _ = resolveCatalogueDisplay(s.ModelsDir, speech, transcribe.UsesOpenVINO(), builtin.UsesOpenVINO(), transcribe.OpenVINOPreferFP16())
+	}
 	if !t.Available || !ok1 || !ok2 {
 		return t
 	}
@@ -96,10 +101,13 @@ func (s *Service) Transcriber(ctx context.Context) Transcriber {
 
 // TranscribeResult is what a transcript did.
 type TranscribeResult struct {
-	Skipped  string `json:"skipped,omitempty"`
-	Language string `json:"language,omitempty"`
-	Path     string `json:"path,omitempty"`
-	Lines    int    `json:"lines"`
+	Skipped        string  `json:"skipped,omitempty"`
+	Language       string  `json:"language,omitempty"`
+	Path           string  `json:"path,omitempty"`
+	Lines          int     `json:"lines"`
+	AudioSeconds   float64 `json:"audio_seconds,omitempty"`
+	ElapsedSeconds float64 `json:"elapsed_seconds,omitempty"`
+	SpeedX         float64 `json:"speed_x,omitempty"`
 }
 
 // hasText reports whether a File has a text subtitle in any language, beside
@@ -125,8 +133,12 @@ func hasText(st Status) bool {
 // language, the transcriber is ready, and the File is not held back. It does
 // not matter why the sites gave nothing.
 func (s *Service) wantsTranscript(ctx context.Context, sc *searchCtx) bool {
-	return sc.set.TranscribeMissing && !sc.opt.Show && !hasText(sc.status) &&
-		s.Transcriber(ctx).Ready && !s.transcriptHeld(ctx, sc.fc.file.ID)
+	if !sc.set.TranscribeMissing || sc.opt.Show || hasText(sc.status) ||
+		!s.Transcriber(ctx).Ready || s.transcriptHeld(ctx, sc.fc.file.ID) {
+		return false
+	}
+	hasOpen, err := hasOpenNonSkippedWish(ctx, s.Store.Read(), sc.fc.file.ID)
+	return err == nil && hasOpen
 }
 
 // QueueTranscribe asks for a transcript of one File. Each File has at most
@@ -150,9 +162,10 @@ func (s *Service) handleTranscribe(ctx context.Context, r *jobs.Run) error {
 	if r.Job.Subject == nil || r.Job.Subject.Type != "file" {
 		return errors.New("subtitle_transcribe needs a file subject")
 	}
+	defer s.clearLiveStat(r.Job.ID)
 	byHand, _ := r.Job.Params["by_hand"].(bool)
 	fileID := r.Job.Subject.ID
-	res, err := s.Transcribe(jobProgress(ctx, r), fileID, byHand, jobActor(r))
+	res, err := s.Transcribe(withJobID(jobProgress(ctx, r), r.Job.ID), fileID, byHand, jobActor(r))
 	switch {
 	case err == nil:
 		r.SetResult(resultMap(res))
@@ -210,7 +223,7 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 	if err != nil {
 		return res, err
 	}
-	tracks, err := transcribe.Tracks(ctx, progs, fc.video())
+	tracks, err := audioTracksForFile(ctx, progs, fc)
 	if err != nil {
 		return res, s.transcribeFail(ctx, fc, err, byHand, by)
 	}
@@ -237,9 +250,39 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 	set := ReadSettings(ctx, s.Store.Read())
 	devs := s.Devices(ctx)
 	cards := s.speechCards(ctx)
-	atOnce := effectiveTranscribeAtOnce(set.TranscribeAtOnce, cards, devs, speech.NeedBytes)
+	atOnce := min(max(set.TranscribeAtOnce, 1), MaxTranscribeAtOnce)
+	speechSlotMB := speechSlotVRAMMB(speech.NeedBytes)
+	llamaMB := s.activeTranslatorEstVRAMMB(ctx)
+	for _, card := range cards {
+		totalMB := cardMemoryMB(devs, card)
+		usableMB := usableVRAMMB(totalMB)
+		extMB := s.externalVRAMMB(ctx, card)
+		devID := cardDeviceID(devs, card)
+		llamaActive := s.Runners != nil && s.Runners.ActiveOn(devID)
+		llamaRunning := s.Runners != nil && s.Runners.RunningOn(devID)
+		if llamaRunning && !llamaActive && usableMB > 0 && (extMB+llamaMB+speechSlotMB) > usableMB {
+			s.Runners.StopIdle(devID)
+			llamaRunning = s.Runners.RunningOn(devID)
+		}
+		otherMB := extMB
+		if llamaActive || llamaRunning {
+			otherMB += llamaMB
+		}
+		availMB := 0
+		if totalMB > 0 {
+			availMB = max(usableMB-otherMB, 1024)
+		}
+		if cap := speechCapForAvailable(availMB, speech.NeedBytes); cap < atOnce {
+			atOnce = cap
+		}
+	}
+	atOnce = max(atOnce, 1)
+	for _, card := range cards {
+		s.speech.stopIdleExcess(card, atOnce)
+	}
 	// A place on a card, with its speech server: the model stays loaded there
 	// between this file's calls and for the files that follow.
+	tellProgressNote(ctx, 0, "waiting_slot")
 	device, server, release, err := s.speech.take(ctx, cards, atOnce)
 	if err != nil {
 		return res, err
@@ -247,8 +290,14 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 	defer release()
 	var extraSlots []transcribe.Slot
 	releaseExtra := func() {}
-	if device >= 0 && atOnce*len(cards) > 1 {
+	if device >= 0 && atOnce*len(cards) > 1 && !s.speech.hasDemand() && !s.hasQueuedTranscribe(ctx) {
 		extraSlots, releaseExtra = s.speech.takeExtra(cards, atOnce, len(cards)*atOnce-1)
+		for i := range extraSlots {
+			baseYield := extraSlots[i].ShouldYield
+			extraSlots[i].ShouldYield = func() bool {
+				return (baseYield != nil && baseYield()) || s.hasQueuedTranscribe(ctx)
+			}
+		}
 		defer releaseExtra()
 	}
 	if s.Runners != nil && device >= 0 {
@@ -257,10 +306,22 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 			seenCards[sl.Device] = true
 		}
 		for card := range seenCards {
-			if tightVRAM(cardMemoryMB(devs, card)) {
-				s.Runners.StopIdle(fmt.Sprintf("Vulkan%d", card))
+			totalMB := cardMemoryMB(devs, card)
+			devID := cardDeviceID(devs, card)
+			if s.Runners.RunningOn(devID) && !s.Runners.ActiveOn(devID) {
+				activeSpeech := max(s.speech.activeOnCard(card), 1)
+				if needsVRAMRoom(totalMB, activeSpeech*speechSlotMB, s.externalVRAMMB(ctx, card)+llamaMB) {
+					s.Runners.StopIdle(devID)
+				}
 			}
 		}
+	}
+	tellProgressNote(ctx, 0.01, "extracting")
+	start := time.Now()
+	jobID := jobIDFrom(ctx)
+	liveAudioSec := track.Seconds
+	if liveAudioSec <= 0 {
+		liveAudioSec = fc.videoSeconds()
 	}
 	out, err := transcribe.Run(ctx, fc.video(), track, track.Language, transcribe.Options{
 		Programs: progs, Model: speechFile.Path, VAD: vadFile.Path, Device: device, Threads: speechThreads(atOnce),
@@ -268,13 +329,28 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 		Prompt: s.promptFor(ctx, fc, termsLang), Log: func(line string) { log.Print(line) },
 		CacheDir: filepath.Join(s.ModelsDir, ".cache"), // the folder the translator's runner uses
 		// The last few percent are the saving of the file.
-		Progress: func(p float64) { tellProgress(ctx, p*0.97) },
+		Progress: func(p float64) {
+			note := "extracting"
+			if p >= 0.10 {
+				note = "transcribing"
+			}
+			tellProgressNote(ctx, p*0.97, note)
+			if elapsed := time.Since(start).Seconds(); liveAudioSec > 0 && p >= 0.10 && elapsed >= 1.5 {
+				s.setLiveStat(jobID, KindTranscribe, (liveAudioSec*p)/elapsed, "x")
+			}
+		},
 	})
+	elapsed := time.Since(start).Seconds()
 	releaseExtra()
 	release()
 	doneJob()
 	if err != nil {
 		return res, s.transcribeFail(ctx, fc, err, byHand, by)
+	}
+	if out.Seconds > 0 && elapsed > 0 {
+		res.AudioSeconds = math.Round(out.Seconds*100) / 100
+		res.ElapsedSeconds = math.Round(elapsed*100) / 100
+		res.SpeedX = math.Round((out.Seconds/elapsed)*100) / 100
 	}
 	lang := NormLanguage(out.Language)
 	if lang == "" {
@@ -299,7 +375,8 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 	s.translateForeignCues(ctx, fc, lang, cues)
 	// A transcript is a machine-made subtitle: marked so, it gives way to
 	// one a person made wherever those do.
-	made, name, score := "ai_translated", speech.Name, scoreTranscribed
+	speechName, _, _, _, _, _ := resolveCatalogueDisplay(s.ModelsDir, speech, transcribe.UsesOpenVINO(), builtin.UsesOpenVINO(), transcribe.OpenVINOPreferFP16())
+	made, name, score := "ai_translated", speechName, scoreTranscribed
 	row := Subtitle{FileID: fc.file.ID, Language: lang, Place: "beside", SiteName: &name, Score: &score, ScoreParts: []Part{},
 		Origin: "fetched", State: "present", Sync: map[string]any{}, Made: &made, Transcribed: true}
 	p, err := s.save(ctx, fc, &row, subtext.WriteSRT(cues), subtext.SRT, ReadSettings(ctx, s.Store.Read()), nil, by)
@@ -315,6 +392,9 @@ func (s *Service) Transcribe(ctx context.Context, fileID int64, byHand bool, by 
 		Summary: fmt.Sprintf("Made the %s subtitle from the audio (%d lines)", LanguageName(lang), len(cues))})
 	// The other wanted languages are the translator's to make, by its rules.
 	if s.Enqueue != nil {
+		if s.Jobs != nil {
+			s.queueLocalTranslationsForFile(ctx, fc.file.ID)
+		}
 		_ = s.Queue(ctx, fc.file.ID, nil)
 	}
 	return res, nil
@@ -333,8 +413,92 @@ func (s *Service) transcribeFail(ctx context.Context, fc *fileCtx, err error, by
 	return err
 }
 
+func (s *Service) hasQueuedTranscribe(ctx context.Context) bool {
+	if s == nil || s.Store == nil {
+		return false
+	}
+	return jobs.HasDueQueued(ctx, s.Store.Read(), KindTranscribe)
+}
+
 // speechThreads is how many CPU threads one transcript uses. With several at
 // once they share the cores the translator's default would give one.
 func speechThreads(atOnce int) int {
 	return max(builtin.DefaultThreads()/max(atOnce, 1), 2)
+}
+
+func audioTracksForFile(ctx context.Context, progs transcribe.Programs, fc *fileCtx) ([]transcribe.Track, error) {
+	if tracks, ok := tracksFromMediaInfo(fc.file.MediaInfo); ok {
+		return tracks, nil
+	}
+	if tracks, ok := tracksFromContainer(fc.video(), fc.probedVideoSeconds()); ok {
+		return tracks, nil
+	}
+	return transcribe.Tracks(ctx, progs, fc.video())
+}
+
+func tracksFromMediaInfo(info map[string]any) ([]transcribe.Track, bool) {
+	if len(info) == 0 {
+		return nil, false
+	}
+	if unk, _ := info["audio_unknown"].(bool); unk {
+		return nil, false
+	}
+	trackCount, ok := numFloat(info["audio_tracks"])
+	if !ok || int(trackCount) != 1 {
+		return nil, false
+	}
+	secs, ok := numFloat(info["runtime_seconds"])
+	if !ok || secs <= 0 {
+		return nil, false
+	}
+	var langs []string
+	switch v := info["audio_languages"].(type) {
+	case []string:
+		langs = v
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				langs = append(langs, s)
+			}
+		}
+	}
+	if len(langs) != 1 {
+		return nil, false
+	}
+	lang := baseOf(NormLanguage(strings.TrimSpace(langs[0])))
+	if lang == "" {
+		return nil, false
+	}
+	return []transcribe.Track{{Index: 0, Language: lang, Seconds: secs}}, true
+}
+
+func tracksFromContainer(video string, fallbackSec float64) ([]transcribe.Track, bool) {
+	info, err := mediafiles.Inspect(video)
+	if err != nil || info.Status == "unsupported" || info.Status == "error" {
+		return nil, false
+	}
+	secs := info.Duration.Seconds()
+	if secs <= 0 {
+		secs = fallbackSec
+	}
+	if secs <= 0 {
+		return nil, false
+	}
+	var out []transcribe.Track
+	audioIdx := 0
+	for _, t := range info.Tracks {
+		if t.Kind != "audio" {
+			continue
+		}
+		lang := baseOf(NormLanguage(strings.TrimSpace(t.Language)))
+		if lang == "" {
+			return nil, false
+		}
+		out = append(out, transcribe.Track{Index: audioIdx, Language: lang, Seconds: secs})
+		audioIdx++
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
 }

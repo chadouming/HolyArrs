@@ -2,8 +2,10 @@ package translate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -294,4 +296,132 @@ func TestOpenAI_PromptWithoutFromName(t *testing.T) {
 	if strings.Contains(p, "from  to") || !strings.Contains(p, "into English") {
 		t.Fatalf("unexpected prompt without FromName: %q", p)
 	}
+}
+
+func TestOpenAI_ContextOverflowSplitsInsteadOfRefusing(t *testing.T) {
+	noWait(t)
+	var sizes []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = decodeLoose(raw, &body)
+		var in struct {
+			Lines []wireLine `json:"lines"`
+		}
+		if len(body.Messages) >= 2 {
+			_ = decodeLoose([]byte(body.Messages[1].Content), &in)
+		}
+		sizes = append(sizes, len(in.Lines))
+		w.Header().Set("Content-Type", "application/json")
+		if len(in.Lines) > 5 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"request (3277 tokens) exceeds the available context size (2048 tokens), try increasing it"}}`))
+			return
+		}
+		out := make([]wireLine, len(in.Lines))
+		for i, l := range in.Lines {
+			out[i] = wireLine{N: l.N, Text: "PT: " + l.Text}
+		}
+		reply := fmt.Sprintf(`{"lines":%s}`, mustJSON(t, out))
+		fmt.Fprintf(w, `{"choices":[{"message":{"content":%s},"finish_reason":"stop"}]}`, mustJSON(t, reply))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := &OpenAI{URL: srv.URL + "/v1", Model: "lab-model"}
+	// Direct Translate call maps context overflow HTTP 400 to KindCut, not KindRefused.
+	_, err := c.Translate(context.Background(), job(10).Batch)
+	if KindOf(err) != KindCut {
+		t.Fatalf("KindOf(err) = %q (%v), want %q", KindOf(err), err, KindCut)
+	}
+
+	// Run splits the 20-line job down until every chunk fits without dropping lines.
+	sizes = nil
+	j := job(20)
+	j.Chunk = 20
+	res, err := Run(context.Background(), c, j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Partial() || res.Translated != 20 {
+		t.Fatalf("translated %d/%d, sizes %v", res.Translated, res.Total, sizes)
+	}
+	for i, l := range res.Lines {
+		if l != fmt.Sprintf("PT: line %d", i+1) {
+			t.Fatalf("line %d = %q", i+1, l)
+		}
+	}
+
+	// A non-context HTTP 400 still returns KindRefused.
+	srvBad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"unknown model bad-model"}}`))
+	}))
+	t.Cleanup(srvBad.Close)
+	cBad := &OpenAI{URL: srvBad.URL + "/v1", Model: "bad-model"}
+	if _, err := cBad.Translate(context.Background(), job(2).Batch); KindOf(err) != KindRefused {
+		t.Fatalf("non-context 400 gave KindOf=%q (%v), want %q", KindOf(err), err, KindRefused)
+	}
+}
+
+func TestRun_MaxCharsCapsChunkSizeAndAllowsSingleLongLine(t *testing.T) {
+	var batches [][]Line
+	c := &recordingClient{fn: func(b Batch) ([]Line, error) {
+		batches = append(batches, append([]Line(nil), b.Lines...))
+		out := make([]Line, len(b.Lines))
+		for i, l := range b.Lines {
+			out[i] = Line{N: l.N, Text: "T:" + l.Text}
+		}
+		return out, nil
+	}}
+	j := Job{
+		Batch: Batch{From: "en", To: "pt-br", FromName: "English", ToName: "Portuguese (Brazil)"},
+		Chunk: 20,
+		MaxChars: 25,
+	}
+	j.Lines = []Line{
+		{N: 1, Text: strings.Repeat("a", 12)},
+		{N: 2, Text: strings.Repeat("b", 12)},
+		{N: 3, Text: strings.Repeat("c", 12)},
+		{N: 4, Text: strings.Repeat("d", 40)}, // longer than MaxChars; still sent alone
+		{N: 5, Text: strings.Repeat("e", 10)},
+	}
+	res, err := Run(context.Background(), c, j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Partial() || res.Translated != 5 {
+		t.Fatalf("translated %d/%d", res.Translated, res.Total)
+	}
+	if len(batches) != 4 {
+		t.Fatalf("got %d batches %+v, want 4", len(batches), batches)
+	}
+	wantSizes := []int{2, 1, 1, 1}
+	for i, want := range wantSizes {
+		if len(batches[i]) != want {
+			t.Fatalf("batch %d had %d lines, want %d", i, len(batches[i]), want)
+		}
+	}
+}
+
+type recordingClient struct {
+	fn func(Batch) ([]Line, error)
+}
+
+func (r *recordingClient) Translate(_ context.Context, b Batch) ([]Line, error) {
+	return r.fn(b)
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

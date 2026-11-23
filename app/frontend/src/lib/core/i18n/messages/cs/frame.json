@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Vyčištěno ze Stahovače",
 	"frame.feeds.clearStill": "Zatím nevyčištěno",
 	"frame.error.pageGone": "Tato stránka neexistuje. Odkaz může být starý nebo špatně napsaný.",
-	"frame.nav.subtitles": "Titulky"
+	"frame.nav.subtitles": "Titulky",
+	"frame.nav.transcode": "Překódování"
 }

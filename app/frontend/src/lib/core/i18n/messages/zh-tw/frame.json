@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "已從下載器清除",
 	"frame.feeds.clearStill": "尚未清除",
 	"frame.error.pageGone": "此頁面不存在。連結可能已過期或輸入錯誤。",
-	"frame.nav.subtitles": "字幕"
+	"frame.nav.subtitles": "字幕",
+	"frame.nav.transcode": "轉碼"
 }

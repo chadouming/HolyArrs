@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { modelAction, sizeWords, translatorBody, translatorReady, type ModelView, type TranslatorForm } from './api.ts';
+import { modelAction, modelBadges, sizeWords, translatorBody, translatorReady, type ModelView, type TranslatorForm } from './api.ts';
 
 const view = (over: Partial<ModelView>): ModelView => ({ id: 'm', name: 'M', size: 1908528192, need: 3 * 2 ** 30, license: 'Apache-2.0', own: false, state: 'missing', progress: 0, fits: true, chosen: false, ...over });
 const form = (over: Partial<TranslatorForm>): TranslatorForm => ({ kind: 'builtin', url: 'http://x/v1', model: 'm', has_key: true, built_in_auto: false, builtin_model: 'hy-mt2-1.8b-q8', threads: 0, gpu: '', builtin_available: true, key: '', clear_key: false, ...over });
@@ -42,5 +42,18 @@ describe('built-in translator models', () => {
 		expect(translatorReady(form({ kind: 'openai' }), [])).toBe(true);
 		expect(translatorReady(form({ kind: 'openai', url: '' }), [])).toBe(false);
 		expect(translatorReady(form({ kind: '' }), present)).toBe(false);
+	});
+
+	it('returns non-empty runtime badges in backend, quantization order', () => {
+		expect(modelBadges(view({ backend: 'OpenVINO', quantization: 'INT8' }))).toEqual(['OpenVINO', 'INT8']);
+		expect(modelBadges(view({ backend: 'OpenVINO', quantization: 'INT4' }))).toEqual(['OpenVINO', 'INT4']);
+		expect(modelBadges(view({ backend: 'OpenVINO', quantization: 'FP16' }))).toEqual(['OpenVINO', 'FP16']);
+		expect(modelBadges(view({ backend: 'GGUF', quantization: 'Q8_0' }))).toEqual(['GGUF', 'Q8_0']);
+		expect(modelBadges(view({ backend: 'GGUF', quantization: 'Q4_0' }))).toEqual(['GGUF', 'Q4_0']);
+		expect(modelBadges(view({ backend: 'GGML', quantization: 'Q5_0' }))).toEqual(['GGML', 'Q5_0']);
+		expect(modelBadges(view({ backend: 'OpenVINO' }))).toEqual(['OpenVINO']);
+		expect(modelBadges(view({ quantization: 'ONNX' }))).toEqual(['ONNX']);
+		expect(modelBadges(view({ backend: '', quantization: '  ' }))).toEqual([]);
+		expect(modelBadges(view({}))).toEqual([]);
 	});
 });

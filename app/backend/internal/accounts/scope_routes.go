@@ -210,12 +210,33 @@ func init() {
 		"GET /api/v1/settings/naming", "GET /api/v1/settings/release-gate", "GET /api/v1/settings/search", "GET /api/v1/bridges",
 		"GET /api/v1/settings/shows", "GET /api/v1/settings/status", "GET /api/v1/settings/subtitles", "GET /api/v1/settings/subtitles/translator", "GET /api/v1/settings/subtitles/transcriber", "GET /api/v1/settings/subtitles/translator/models", "GET /api/v1/settings/title-defaults", "GET /api/v1/shows/lookup",
 		"GET /api/v1/sources", "GET /api/v1/sources/sites", "GET /api/v1/sources/{id}/stats", "GET /api/v1/subtitle-sites",
-		"GET /api/v1/subtitle-sites/kinds", "GET /api/v1/subtitles/languages", "GET /api/v1/subtitles/missing", "GET /api/v1/subtitles/overview",
+		"GET /api/v1/subtitle-sites/kinds", "GET /api/v1/subtitles/languages", "GET /api/v1/subtitles/missing", "GET /api/v1/subtitles/overview", "GET /api/v1/subtitles/waiting", "GET /api/v1/subtitles/history", "GET /api/v1/subtitles/failed", "GET /api/v1/subtitles/integrity",
+		"GET /api/v1/transcode/overview", "GET /api/v1/transcode/items", "GET /api/v1/transcode/waiting", "GET /api/v1/transcode/failed", "GET /api/v1/transcode/settings", "GET /api/v1/transcode/hardware", "GET /api/v1/transcode/profiles",
 		"GET /api/v1/titles", "GET /api/v1/titles/owned", "GET /api/v1/library/search", "GET /api/v1/search/suggest", "GET /api/v1/search", "GET /api/v1/titles/lookup", "GET /api/v1/titles/{id}",
 		"GET /api/v1/titles/{id}/albums", "GET /api/v1/titles/{id}/episodes", "GET /api/v1/titles/{id}/releases",
 		"GET /api/v1/titles/{id}/rename", "GET /api/v1/titles/{id}/leftovers", "GET /api/v1/titles/{id}/episode-groups", "GET /api/v1/titles/{id}/seasons", "GET /api/v1/titles/{id}/subtitles", "GET /api/v1/titles/{id}/subtitle-terms", "GET /api/v1/titles/{id}/search-outcome",
 		"GET /api/v1/turned-down", "GET /api/v1/users/{id}/avatar", "GET /api/v1/schedules", "GET /api/v1/app/update",
 	} {
 		ReadRoutes[r] = true
+	}
+	for _, r := range []string{
+		"GET /api/v1/transcode/overview", "GET /api/v1/transcode/items", "GET /api/v1/transcode/waiting", "GET /api/v1/transcode/failed",
+		"POST /api/v1/transcode/scan", "POST /api/v1/transcode/queue-all", "POST /api/v1/files/{id}/transcode",
+		"POST /api/v1/files/{id}/transcode/skip",
+		"POST /api/v1/transcode/jobs/{id}/bump", "POST /api/v1/transcode/jobs/{id}/skip",
+		"POST /api/v1/transcode/jobs/{id}/stop", "POST /api/v1/transcode/jobs/{id}/retry", "POST /api/v1/transcode/jobs/retry-failed",
+		"PUT /api/v1/transcode/pause", "GET /api/v1/transcode/settings", "GET /api/v1/transcode/hardware",
+		"GET /api/v1/transcode/profiles",
+	} {
+		RoutePerms[r] = webserver.PermManageLibrary
+	}
+	for _, r := range []string{
+		"PUT /api/v1/transcode/settings",
+		"POST /api/v1/transcode/profiles",
+		"PUT /api/v1/transcode/profiles/{id}",
+		"DELETE /api/v1/transcode/profiles/{id}",
+		"PUT /api/v1/transcode/library-folders/{id}",
+	} {
+		RoutePerms[r] = webserver.PermSettings
 	}
 }

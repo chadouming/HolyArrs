@@ -66,7 +66,7 @@
 	}
 	.want {
 		display: grid;
-		grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto auto;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto auto;
 		gap: var(--s-3);
 		align-items: end;
 		padding: 12px;
@@ -75,7 +75,7 @@
 		background: var(--surface-2);
 	}
 	.want.tr {
-		grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(0, 1.2fr) auto auto;
+		grid-template-columns: minmax(0, 0.95fr) minmax(0, 2.05fr) minmax(0, 1.05fr) auto auto;
 	}
 	.wants { padding: 0; list-style: none; }
 	/* Label above its picker: the settings pages' label-left field rows would squeeze a row of three to one letter wide. */
@@ -108,6 +108,10 @@
 		}
 		.want :global(.input) {
 			min-height: 44px;
+		}
+		.want select.input {
+			font-size: 13px;
+			padding-inline: 10px 26px;
 		}
 		.add :global(.ui-btn) {
 			width: 100%;

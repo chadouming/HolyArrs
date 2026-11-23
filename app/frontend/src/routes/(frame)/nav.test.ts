@@ -21,7 +21,7 @@ describe('buildNav', () => {
 			[null, ['Home', 'Explore', 'New & Popular']],
 			['Library', ['Movies', 'TV shows', 'Music', 'Stats']],
 			['Your stuff', ['Calendar', 'Requests']],
-			['Activity', ['Downloads', 'History', 'Subtitles']],
+			['Activity', ['Downloads', 'History', 'Subtitles', 'Transcode']],
 			['System', ['Status', 'Plugins', 'Settings']]
 		]);
 	});
@@ -69,6 +69,40 @@ describe('buildNav', () => {
 		const manage = nav.find((s) => s.id === 'activity')!;
 		expect(nav.find((s) => s.id === 'yours')!.items.find((i) => i.label === 'Requests')?.badge).toBe(3);
 		expect(manage.items.find((i) => i.label === 'Downloads')?.badge).toBe(1);
+	});
+	it('shows a ring and count on Subtitles when active, a dot when failed while idle, and nothing when idle', () => {
+		const sub = (i: NavInput) => buildNav(i).find((s) => s.id === 'activity')?.items.find((x) => x.href === '/subtitles');
+		const active = sub({ ...owner, subtitles: { count: 3, percent: 45, failed: 2 } });
+		expect(active).toMatchObject({ badge: 3, ring: 45 });
+		expect(active?.dot).toBeUndefined();
+		const failed = sub({ ...owner, subtitles: { count: 0, percent: 0, failed: 2 } });
+		expect(failed?.dot).toBe(true);
+		expect(failed?.badge).toBeUndefined();
+		expect(failed?.ring).toBeUndefined();
+		const idle = sub({ ...owner, subtitles: { count: 0, percent: 0, failed: 0 } });
+		expect(idle?.badge).toBeUndefined();
+		expect(idle?.ring).toBeUndefined();
+		expect(idle?.dot).toBeUndefined();
+	});
+	it('lists Transcode for people who manage the Library, and not when the part is off', () => {
+		const act = (i: NavInput) => buildNav(i).find((s) => s.id === 'activity')?.items.map((x) => x.href) ?? [];
+		expect(act(owner)).toContain('/transcode');
+		expect(act(member)).not.toContain('/transcode');
+		expect(act({ ...owner, off: (h) => h === '/transcode' })).not.toContain('/transcode');
+	});
+	it('shows a ring and count on Transcode when active, a dot when failed while idle, and nothing when idle', () => {
+		const tc = (i: NavInput) => buildNav(i).find((s) => s.id === 'activity')?.items.find((x) => x.href === '/transcode');
+		const active = tc({ ...owner, transcode: { count: 2, percent: 62, failed: 1 } });
+		expect(active).toMatchObject({ badge: 2, ring: 62 });
+		expect(active?.dot).toBeUndefined();
+		const failed = tc({ ...owner, transcode: { count: 0, percent: 0, failed: 3 } });
+		expect(failed?.dot).toBe(true);
+		expect(failed?.badge).toBeUndefined();
+		expect(failed?.ring).toBeUndefined();
+		const idle = tc({ ...owner, transcode: { count: 0, percent: 0, failed: 0 } });
+		expect(idle?.badge).toBeUndefined();
+		expect(idle?.ring).toBeUndefined();
+		expect(idle?.dot).toBeUndefined();
 	});
 });
 

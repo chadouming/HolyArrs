@@ -125,14 +125,25 @@ func (im *Importer) Import(ctx context.Context, downloadID int64, dryRun bool, b
 	}
 	gone := sourcesGone(root, plan, dr.Protocol == "usenet")
 	lowSpace, release := im.guard(plan, lf.Path, cands, rules)
-	defer release()
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 	minutes := 0
 	if it.Runtime != nil {
 		minutes = *it.Runtime
 	}
-	up, err := checkUpgrade(ctx, db, sl, ver, d, plan, cands, im.refuseFakes(ctx, db), minutes)
+	fakes := im.refuseFakes(ctx, db)
+	up, err := checkUpgrade(ctx, db, sl, ver, d, plan, cands, fakes, minutes)
 	if err != nil {
 		return nil, err
+	}
+	if !hasMain(plan) && len(up.samples) > 0 {
+		plan, up, lowSpace, release, err = im.movieSampleFallback(ctx, db, sl, ver, d, t, lf.Path, root, unpackWhy, bad, cands, rules, fakes, minutes, plan, up, lowSpace, release)
+		if err != nil {
+			return nil, err
+		}
 	}
 	im.markMoves(ctx, db, plan, dr, unpacked)
 	imp := &mediafiles.Import{DownloadID: &d.ID, FromPath: root, Kind: "movie", Plan: plan, Result: []mediafiles.PlaceResult{}, Mode: "dry_run", State: "planned"}

@@ -549,6 +549,7 @@ func serve(ctx context.Context, c config, o runOpts) error {
 	subs := newSubtitles(ctx, &subtitles.Service{Store: s, Live: hub, Vault: vault}, c.ConfigDir, q, pc)
 	defer subs.StopRunners()
 	subs.Register(q)
+	tc := newTranscode(ctx, s, hub, q, subs, pc, c.SafeMode)
 	if !c.SafeMode {
 		s.OnEvent(func(e domain.Event) {
 			if pc.On(parts.Subtitles) {
@@ -571,7 +572,7 @@ func serve(ctx context.Context, c config, o runOpts) error {
 		return err
 	}
 	defer q.Stop()
-	for p, label := range map[jobs.Pool]string{jobs.PoolCore: "Core workers", jobs.PoolIO: "Search and download workers", jobs.PoolHeavy: "Import and scan workers", jobs.PoolMigrate: "Import from other apps worker", jobs.PoolTranslate: "Subtitle translation worker"} {
+	for p, label := range map[jobs.Pool]string{jobs.PoolCore: "Core workers", jobs.PoolIO: "Search and download workers", jobs.PoolHeavy: "Import and scan workers", jobs.PoolMigrate: "Import from other apps worker", jobs.PoolTranslate: "Subtitle translation worker", jobs.PoolTranscode: "Transcode workers"} {
 		if pools[p] == 0 {
 			reg.Set(jobs.StageKey("jobs_"+string(p)), "stage", label, jobs.Off, notStarted)
 			continue
@@ -700,7 +701,7 @@ func serve(ctx context.Context, c config, o runOpts) error {
 		Secrets: vault, TraktBase: os.Getenv("HOLYARRS_TRAKT_URL"), MetadataUp: metadataUp(hosted), MetadataModes: hosted.Modes, MetadataTest: hosted.TestKey, MetadataEnvKey: hosted.OwnKey, ServiceTop: hosted.Service.ServiceTop, TrailerPick: func(ctx context.Context, kind, id, lang string) (string, error) {
 			t, err := hosted.Service.TrailerPick(ctx, kind, id, lang)
 			return t.Key, err
-		}, AnimeMap: hosted.Service.AnimeMap, ExtraArt: metadata.ModeArt(hosted.Modes, hosted.Service.Art, own.Art), ImageBase: hosted.Service.Base() + "/v1/img", MusicControl: hosted.Service.Control, ArtistVideos: hosted.Service.ArtistVideos, ExtraRatings: metadata.ModeRatings(hosted.Modes, hosted.Service.Ratings, own.Ratings), CountryCount: hosted.Gate.SetCountryCount, WikiTitle: hosted.Service.WikiTitle, WikiPerson: hosted.Service.WikiPerson, AwardWinners: hosted.Service.AwardWinners, Alerts: sender, Asks: requestsSvc, Watchlists: plexWatch, Search: sr, Downloads: dm, DLSync: dls, Health: he, Updates: uc, Media: media, Subtitles: subs, States: reg, SafeMode: c.SafeMode, Parts: pc, ExitApp: exitApp, Mover: mover,
+		}, AnimeMap: hosted.Service.AnimeMap, ExtraArt: metadata.ModeArt(hosted.Modes, hosted.Service.Art, own.Art), ImageBase: hosted.Service.Base() + "/v1/img", MusicControl: hosted.Service.Control, ArtistVideos: hosted.Service.ArtistVideos, ExtraRatings: metadata.ModeRatings(hosted.Modes, hosted.Service.Ratings, own.Ratings), CountryCount: hosted.Gate.SetCountryCount, WikiTitle: hosted.Service.WikiTitle, WikiPerson: hosted.Service.WikiPerson, AwardWinners: hosted.Service.AwardWinners, Alerts: sender, Asks: requestsSvc, Watchlists: plexWatch, Search: sr, Downloads: dm, DLSync: dls, Health: he, Updates: uc, Media: media, Subtitles: subs, Transcode: tc, States: reg, SafeMode: c.SafeMode, Parts: pc, ExitApp: exitApp, Mover: mover,
 		Log: applogs, ConfigDir: c.ConfigDir, SavePath: c.SavePath, URLBase: c.URLBase, Deps: ownPictures(musicDeps(hosted.Service, serverDeezer, serverDeezerAlbum, serverBio), hosted, version)})
 	// "Count this install" rides on every request to the metadata server.
 	a.ApplyCountryCount(ctx)

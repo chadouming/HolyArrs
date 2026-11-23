@@ -21,13 +21,16 @@ const (
 	// PoolModels fetches model files, which can take an hour: in a pool of
 	// its own it holds up neither translations nor searches and grabs.
 	PoolModels Pool = "models"
+	// PoolTranscode runs video transcode jobs on hardware or CPU encoders,
+	// dynamically gated by transcode settings.
+	PoolTranscode Pool = "transcode"
 )
 
 // DefaultPools are the worker counts the app starts with.
-var DefaultPools = map[Pool]int{PoolCore: 1, PoolIO: 2, PoolHeavy: 1, PoolMigrate: 1, PoolTranslate: 1, PoolTranscribe: 1, PoolModels: 1}
+var DefaultPools = map[Pool]int{PoolCore: 1, PoolIO: 2, PoolHeavy: 1, PoolMigrate: 1, PoolTranslate: 1, PoolTranscribe: 1, PoolModels: 1, PoolTranscode: 4}
 
 // AllPools lists every pool in start order.
-var AllPools = []Pool{PoolCore, PoolIO, PoolHeavy, PoolMigrate, PoolTranslate, PoolTranscribe, PoolModels}
+var AllPools = []Pool{PoolCore, PoolIO, PoolHeavy, PoolMigrate, PoolTranslate, PoolTranscribe, PoolModels, PoolTranscode}
 
 // kindPools assigns every Job kind to a pool. A kind not listed runs in
 // the I/O pool; a test in cmd/holyarrs fails for a registered kind that
@@ -72,7 +75,10 @@ var kindPools = map[string]Pool{
 	"migrate_undo":        PoolMigrate,
 	"rescan_library":      PoolHeavy,
 	"subtitle_look":       PoolHeavy,
+	"subtitle_verify":     PoolHeavy,
 	"recheck_pick_rules":  PoolHeavy,
+	"transcode_scan":      PoolHeavy,
+	"transcode_file":      PoolTranscode,
 }
 
 // Pool is a group of workers. Core work (health checks) never waits behind

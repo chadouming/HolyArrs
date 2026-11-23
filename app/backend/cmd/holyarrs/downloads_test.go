@@ -122,9 +122,10 @@ func TestDecideRoute(t *testing.T) {
 	do(t, "POST", u, `{"action":"turn_down"}`, 202)
 	var rs string
 	_ = x.s.Read().QueryRow("SELECT state FROM releases WHERE id = ?", x.relID).Scan(&rs)
-	if rs != "turned_down" {
-		t.Fatalf("release %s", rs)
+	if rs != "turned_down" || x.slotState(t) != "wanted" {
+		t.Fatalf("release %s slot %s", rs, x.slotState(t))
 	}
+	exec41(t, x.s, "UPDATE slots SET state = 'needs_a_decision' WHERE id = ?", x.slotID)
 	// Stop looking: Keep up to date off for the Version, the Slot rests.
 	do(t, "POST", u, `{"action":"stop"}`, 200)
 	var keep bool

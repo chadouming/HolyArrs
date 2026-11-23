@@ -337,7 +337,7 @@
 				{@const bad = tb.tab === 'processing' ? failedTotal : 0}
 				{@const here = ctx.approverTab === tb.tab}
 				<div class="pw" class:on={here} role="presentation">
-					<button type="button" class="tab" class:zero={!n} aria-pressed={here} aria-label={t('requests.board.tabLabel', { label: tb.label, n }) + (bad ? t('requests.board.tabFailed', { n: bad }) : '') + (here && status ? t('requests.board.tabShowing', { status }) : '')} onclick={() => pickTab(tb.tab)}>{tb.label}<span class="n" class:wait={tb.tab === 'pending' && n}>{n}</span>{#if bad}<span class="fail-dot" aria-hidden="true"></span>{/if}</button>
+					<button type="button" class="tab" class:zero={!n} aria-pressed={here} aria-label={t('requests.board.tabLabel', { label: tb.label, n }) + (bad ? t('requests.board.tabFailed', { n: bad }) : '') + (here && status ? t('requests.board.tabShowing', { status }) : '')} onclick={() => pickTab(tb.tab)}>{tb.label}{' '}<span class="n" class:wait={tb.tab === 'pending' && n}>{n}</span>{#if bad}<span class="fail-dot" aria-hidden="true"></span>{/if}</button>
 				</div>
 			{/each}
 		</div>

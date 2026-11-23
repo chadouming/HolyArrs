@@ -227,7 +227,7 @@ test('Movies and TV defaults: saved choices are where the add movie dialog start
 		await dialog.getByLabel('Library folder').selectOption(other);
 		await dialog.getByRole('button', { name: 'Cancel' }).click();
 		await expect(dialog).toBeHidden();
-		await page.getByRole('button', { name: 'Add Salt Choir' }).click();
+		await page.getByRole('button', { name: 'Add to library: Salt Choir' }).click();
 		await expect(dialog.getByLabel('Library folder')).toHaveValue(first);
 		await expect(dialog.getByLabel('Library folder')).not.toHaveValue(other);
 	} else {

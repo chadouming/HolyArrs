@@ -2,7 +2,9 @@ package subtitles
 
 import (
 	"context"
+	"database/sql"
 	"log"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -181,6 +183,62 @@ func (p *speechPlaces) takeExtra(cards []int, perCard int, maxExtra int) ([]tran
 	return slots, release
 }
 
+// runningOnCard reports how many speech servers on card have a running process.
+func (p *speechPlaces) runningOnCard(card int) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	count := 0
+	for i, srv := range p.servers {
+		if p.cardOf[i] == card && srv != nil && srv.Running() {
+			count++
+		}
+	}
+	return count
+}
+
+// activeOnCard reports how many speech slots on card are currently busy.
+func (p *speechPlaces) activeOnCard(card int) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	count := 0
+	for i, busy := range p.busy {
+		if busy && p.cardOf[i] == card {
+			count++
+		}
+	}
+	return count
+}
+
+// stopIdleExcess stops idle speech servers on card beyond keepRunning total running slots.
+func (p *speechPlaces) stopIdleExcess(card int, keepRunning int) {
+	if keepRunning < 0 {
+		keepRunning = 0
+	}
+	p.mu.Lock()
+	busyRunning := 0
+	var idleIndices []int
+	for i, srv := range p.servers {
+		if p.cardOf[i] != card || srv == nil || !srv.Running() {
+			continue
+		}
+		if p.busy[i] {
+			busyRunning++
+		} else {
+			idleIndices = append(idleIndices, i)
+		}
+	}
+	sort.Ints(idleIndices)
+	keepIdle := max(keepRunning-busyRunning, 0)
+	var servers []*transcribe.Server
+	for idx := keepIdle; idx < len(idleIndices); idx++ {
+		servers = append(servers, p.servers[idleIndices[idx]])
+	}
+	p.mu.Unlock()
+	for _, srv := range servers {
+		srv.StopIfIdle()
+	}
+}
+
 // stopIdleCard stops any idle speech server assigned to card.
 func (p *speechPlaces) stopIdleCard(card int) {
 	p.mu.Lock()
@@ -193,6 +251,92 @@ func (p *speechPlaces) stopIdleCard(card int) {
 	p.mu.Unlock()
 	for _, srv := range servers {
 		srv.StopIfIdle()
+	}
+}
+
+// stopIdleAll stops every idle speech server.
+func (p *speechPlaces) stopIdleAll() {
+	p.mu.Lock()
+	var servers []*transcribe.Server
+	for i, srv := range p.servers {
+		if !p.busy[i] && srv != nil {
+			servers = append(servers, srv)
+		}
+	}
+	p.mu.Unlock()
+	for _, srv := range servers {
+		srv.StopIfIdle()
+	}
+}
+
+// YieldGPU stops idle whisper and llama runners to free VRAM before a transcode.
+func (s *Service) YieldGPU() {
+	if s == nil {
+		return
+	}
+	s.speech.stopIdleAll()
+	if s.Runners != nil {
+		s.Runners.StopIdleAll()
+	}
+}
+
+// YieldGPUForVRAM stops idle whisper or llama runners on card (or all detected
+// cards when card < 0) only when resident models plus reserveMB exceed usable VRAM.
+func (s *Service) YieldGPUForVRAM(ctx context.Context, card int, reserveMB int) {
+	if s == nil {
+		return
+	}
+	devs := s.Devices(ctx)
+	var cards []int
+	if card >= 0 {
+		cards = []int{card}
+	} else {
+		cards = cardNumbers(GPUAll, devs)
+		if len(cards) == 0 {
+			s.YieldGPU()
+			return
+		}
+	}
+	speechSlotMB := speechSlotVRAMMB(s.activeSpeechNeedBytes(ctx))
+	llamaMB := s.activeTranslatorEstVRAMMB(ctx)
+	for _, c := range cards {
+		totalMB := cardMemoryMB(devs, c)
+		usableMB := usableVRAMMB(totalMB)
+		devID := cardDeviceID(devs, c)
+		resident := func() int {
+			sp := s.speech.runningOnCard(c) * speechSlotMB
+			ll := 0
+			if s.Runners != nil && s.Runners.RunningOn(devID) {
+				ll = llamaMB
+			}
+			return sp + ll
+		}
+		if totalMB <= 0 {
+			s.speech.stopIdleCard(c)
+			if s.Runners != nil {
+				s.Runners.StopIdle(devID)
+			}
+			continue
+		}
+		if resident()+reserveMB <= usableMB {
+			continue
+		}
+		llamaRes := 0
+		if s.Runners != nil && s.Runners.RunningOn(devID) {
+			llamaRes = llamaMB
+		}
+		roomForSpeech := usableMB - reserveMB - llamaRes
+		if roomForSpeech >= speechSlotMB {
+			s.speech.stopIdleExcess(c, roomForSpeech/speechSlotMB)
+		} else {
+			s.speech.stopIdleCard(c)
+		}
+		if resident()+reserveMB > usableMB {
+			s.speech.stopIdleCard(c)
+		}
+		if resident()+reserveMB > usableMB && s.Runners != nil {
+			s.Runners.StopIdle(devID)
+		}
 	}
 }
 
@@ -257,13 +401,20 @@ func (s *Service) StopRunners() {
 // start. It is one on the CPU.
 func SpeechWorkers(ctx context.Context, st *database.Store) int {
 	db := st.Read()
-	gpu := readTranslator(ctx, db).GPU
-	if gpu == "" {
+	if readTranslator(ctx, db).GPU == "" {
 		return 1
 	}
 	var devs []builtin.Device
 	if bin, ok := builtin.Find(); ok {
 		devs, _ = builtin.Devices(ctx, bin)
+	}
+	return speechWorkersFromDevices(ctx, db, devs)
+}
+
+func speechWorkersFromDevices(ctx context.Context, db *sql.DB, devs []builtin.Device) int {
+	gpu := readTranslator(ctx, db).GPU
+	if gpu == "" {
+		return 1
 	}
 	cards := cardNumbers(gpu, devs)
 	if len(cards) == 0 {
@@ -283,4 +434,23 @@ func SpeechWorkers(ctx context.Context, st *database.Store) int {
 	}
 	atOnce := effectiveTranscribeAtOnce(set.TranscribeAtOnce, cards, devs, needBytes)
 	return len(cards) * atOnce
+}
+
+// SpeechPoolWorkers returns the job queue worker ceiling for PoolTranscribe.
+// It spawns enough workers for the maximum concurrent GPU slots across all
+// detected cards so live GPU or concurrency setting changes take effect
+// without a restart, while speechPlaces.take dynamically gates active slots.
+func SpeechPoolWorkers(ctx context.Context, st *database.Store) int {
+	workers := 1
+	if st != nil {
+		workers = max(SpeechWorkers(ctx, st), 1)
+	}
+	var devs []builtin.Device
+	if bin, ok := builtin.Find(); ok {
+		devs, _ = builtin.Devices(ctx, bin)
+	}
+	if allCards := cardNumbers(GPUAll, devs); len(allCards) > 0 {
+		return max(workers, len(allCards)*MaxTranscribeAtOnce)
+	}
+	return workers
 }

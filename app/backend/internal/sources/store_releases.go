@@ -11,6 +11,7 @@ import (
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/jobs"
 	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
+	"github.com/HolyArrs/holyarrs/app/backend/internal/core/releasename"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/mediafiles"
 )
 
@@ -266,24 +267,47 @@ func passOverHeldReleaseTx(tx *sql.Tx, releaseID int64, by domain.Actor) error {
 }
 
 // turnedDownNames lists the names and info hashes of Releases turned down
-// for the Slot, whole or for it alone.
+// for the Slot, whole (across its Version) or for it alone.
 func turnedDownNames(ctx context.Context, db *sql.DB, slotID int64) ([]string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT name, COALESCE(info_hash, '') FROM releases
-		WHERE state = 'turned_down' AND EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(verdict, '$.turned_down_slot_ids'), matched_slot_ids))
-			WHERE value = ?) OR EXISTS (SELECT 1 FROM json_each(json_extract(verdict, '$.turned_down_slot_ids')) WHERE value = ?)`, slotID, slotID)
+	rows, err := db.QueryContext(ctx, `WITH target AS (SELECT version_id FROM slots WHERE id = ?)
+		SELECT r.name, COALESCE(r.info_hash, ''), COALESCE(r.link_ref, ''),
+			COALESCE((SELECT d.external_id FROM downloads d WHERE d.release_id = r.id ORDER BY d.id DESC LIMIT 1), '')
+		FROM releases r
+		WHERE (
+			COALESCE(json_array_length(json_extract(r.verdict, '$.turned_down_slot_ids')), 0) > 0
+			AND EXISTS (SELECT 1 FROM json_each(json_extract(r.verdict, '$.turned_down_slot_ids')) WHERE value = ?)
+		) OR (
+			r.state = 'turned_down'
+			AND COALESCE(json_array_length(json_extract(r.verdict, '$.turned_down_slot_ids')), 0) = 0
+			AND (
+				EXISTS (SELECT 1 FROM json_each(r.matched_slot_ids) WHERE value = ?)
+				OR EXISTS (SELECT 1 FROM json_each(r.matched_slot_ids) j JOIN slots s ON s.id = j.value WHERE s.version_id = (SELECT version_id FROM target))
+				OR EXISTS (SELECT 1 FROM downloads d, json_each(d.slot_ids) j JOIN slots s ON s.id = j.value WHERE d.release_id = r.id AND s.version_id = (SELECT version_id FROM target))
+			)
+		)`, slotID, slotID, slotID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []string
+	seen := map[string]bool{}
+	add := func(s string) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
 	for rows.Next() {
-		var n, h string
-		if err := rows.Scan(&n, &h); err != nil {
+		var n, h, link, extID string
+		if err := rows.Scan(&n, &h, &link, &extID); err != nil {
 			return nil, err
 		}
-		out = append(out, n)
-		if h != "" {
-			out = append(out, h)
+		add(n)
+		if lh := listingHash(h, link); lh != "" {
+			add(lh)
+		}
+		if ext := strings.ToLower(strings.TrimSpace(extID)); releasename.ValidInfoHash(ext) {
+			add(ext)
 		}
 	}
 	return out, rows.Err()
@@ -294,8 +318,8 @@ func turnedDownNames(ctx context.Context, db *sql.DB, slotID int64) ([]string, e
 // Slots of another Version picked for the same Release stay listed.
 func markPickedTx(tx *sql.Tx, releaseID int64, state string, until *time.Time, slotIDs []int64, by domain.Actor) error {
 	_, err := tx.Exec(`UPDATE releases SET state = ?, hold_until = ?,
-		verdict = json_set(COALESCE(verdict, '{}'), '$.pick_slot_ids', (SELECT json_group_array(value) FROM (
-			SELECT value FROM json_each(COALESCE(json_extract(verdict, '$.pick_slot_ids'), '[]')) UNION SELECT value FROM json_each(?)))),
+		verdict = json_set(COALESCE(verdict, '{}'), '$.pick_slot_ids', json((SELECT json_group_array(value) FROM (
+			SELECT value FROM json_each(COALESCE(json_extract(verdict, '$.pick_slot_ids'), '[]')) UNION SELECT value FROM json_each(?))))),
 		matched_slot_ids = (SELECT json_group_array(value) FROM (SELECT value FROM json_each(matched_slot_ids) UNION SELECT value FROM json_each(?))),
 		updated_at = ?, updated_by = ? WHERE id = ?`,
 		state, timeOrNil(until), jsonText(slotIDs), jsonText(slotIDs), database.FormatTime(time.Now()), actorText(by), releaseID)

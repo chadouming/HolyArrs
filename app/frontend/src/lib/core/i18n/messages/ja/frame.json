@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "ダウンローダーから消去しました",
 	"frame.feeds.clearStill": "まだ消去されていません",
 	"frame.error.pageGone": "このページはありません。リンクが古いか、入力が間違っている可能性があります。",
-	"frame.nav.subtitles": "字幕"
+	"frame.nav.subtitles": "字幕",
+	"frame.nav.transcode": "トランスコード"
 }

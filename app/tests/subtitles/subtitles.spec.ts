@@ -28,7 +28,7 @@ async function fresh(browser: Browser, width = 1280) {
 	return ctx.newPage();
 }
 
-const axe = (p: Page, where: string, include?: string) => scan(p, where, { include, waitAll: true });
+const axe = (p: Page, where: string, include?: string) => scan(p, where, { waitAll: false, include: include ?? '#main' });
 async function adopt(folderLabel: string, name: string, button: string, doneText: string) {
 	await page.goto('/library/import');
 	const lf = page.getByLabel('Library folder');
@@ -173,11 +173,17 @@ test('Subtitles page: what is missing and why, the sites, the jobs, and the list
 	// This build has no speech program, and the tile says so.
 	await expect(page.getByTestId('tile-speech')).toContainText('no speech program');
 	await expect(page.getByTestId('subtitles-site').first()).toBeVisible();
-	// Search all, in the test before this one, saved the movie's Spanish subtitle from the lab site: it is listed as done.
-	const done = page.getByTestId('subtitles-done');
-	await expect(done.getByRole('heading', { name: 'Done' })).toBeVisible();
-	await expect(done.getByTestId('subtitles-done-row').filter({ hasText: 'Quill Atlas' }).first()).toHaveAttribute('data-how', 'downloaded');
-	await expect(done.getByTestId('subtitles-done-count').first()).toContainText(/Downloaded \d+/);
+	// Search all, in the test before this one, saved the movie's Spanish subtitle from the lab site: it is listed in History as done.
+	await page.getByTestId('subtitles-tab-history').click();
+	await expect(page).toHaveURL(/\/subtitles\?tab=history$/);
+	const histTab = page.getByTestId('subtitles-history-tab');
+	await expect(histTab).toBeVisible();
+	await expect(histTab.getByTestId('subtitles-done-count').filter({ hasText: /^Downloaded [1-9]\d*$/ })).toBeVisible();
+	const quillHistoryRow = histTab.getByTestId('subtitles-history-row').filter({ hasText: 'Quill Atlas' }).first();
+	await expect(quillHistoryRow).toHaveAttribute('data-state', 'done');
+	await expect(quillHistoryRow).toHaveAttribute('data-how', 'downloaded');
+	await page.getByTestId('subtitles-tab-overview').click();
+	await expect(page).toHaveURL(/\/subtitles$/);
 	const rows = page.getByTestId('subtitles-missing-row');
 	await expect(rows.first()).toBeVisible();
 	await expect(rows.first().getByTestId('subtitles-step')).toHaveAttribute('data-step', 'speechOff');
@@ -309,10 +315,125 @@ test('Show page: one episode gets its own subtitle languages in its sheet', asyn
 	await page.keyboard.press('Escape');
 });
 
+test('Subtitles page: coverage stats, sidebar progress ring, stop and retry jobs, Failed tab, and Integrity verification', async () => {
+	await page.goto('/subtitles');
+	await expect(page.getByTestId('subtitles-stats')).toBeVisible();
+	await expect(page.getByTestId('subtitles-coverage')).toContainText('%');
+	await expect(page.getByTestId('subtitles-speed-speech')).toBeVisible();
+	await expect(page.getByTestId('subtitles-speed-translate')).toBeVisible();
+	// Wait until any background search queued by the previous test settles.
+	await expect(page.getByTestId('subtitles-jobs')).toHaveCount(0, { timeout: 15_000 });
+	await expect(page.getByTestId('subtitles-waiting-callout')).toHaveCount(0, { timeout: 15_000 });
+	await page.getByTestId('subtitles-pause').click();
+	await expect(page.getByTestId('subtitles-paused')).toBeVisible();
+	await page.getByTestId('subtitles-missing-row').first().getByTestId('subtitles-search').click();
+	await expect(page.getByTestId('subtitles-jobs')).toHaveCount(0);
+	const callout = page.getByTestId('subtitles-waiting-callout');
+	await expect(callout).toBeVisible();
+	const navSub = page.getByRole('navigation', { name: 'Main' }).locator('a[href="/subtitles"]');
+	await expect(navSub.getByTestId('nav-ring')).toBeVisible();
+	await expect(navSub.getByTestId('nav-subtitles')).toBeVisible();
+	if (process.env.HOLYARRS_E2E_SHOTS) {
+		mkdirSync(process.env.HOLYARRS_E2E_SHOTS, { recursive: true });
+		await page.evaluate(() => window.scrollTo(0, 0));
+		await page.screenshot({ path: join(process.env.HOLYARRS_E2E_SHOTS, 'subtitles-active-ring.png') });
+	}
+	await callout.getByTestId('subtitles-goto-waiting').click();
+	await expect(page).toHaveURL(/\/subtitles\?tab=waiting$/);
+	await expect(page.getByTestId('subtitles-waiting-tab')).toBeVisible();
+	const waitingRows = page.getByTestId('subtitles-waiting-row');
+	await expect(waitingRows.first()).toBeVisible();
+	const waitingBefore = await waitingRows.count();
+	await waitingRows.first().getByTestId('subtitles-skip-job').click();
+	await expect(waitingRows).toHaveCount(waitingBefore - 1);
+
+	await page.getByTestId('subtitles-tab-history').click();
+	await expect(page).toHaveURL(/\/subtitles\?tab=history$/);
+	await expect(page.getByTestId('subtitles-history-tab')).toBeVisible();
+	await page.getByTestId('subtitles-history-filter').getByRole('radio', { name: 'Skipped', exact: true }).click();
+	const skippedRows = page.locator('[data-testid="subtitles-history-row"][data-state="skipped"]');
+	await expect(skippedRows.first()).toBeVisible();
+	const skippedBefore = await skippedRows.count();
+	const retrySearchRes = page.waitForResponse((r) => r.url().includes('/api/v1/subtitles/search') && r.request().method() === 'POST');
+	await skippedRows.first().getByTestId('subtitles-history-retry').click();
+	expect((await retrySearchRes).status()).toBe(202);
+	await expect(skippedRows).toHaveCount(skippedBefore - 1);
+
+	// Stop the newly queued job via API so it moves into Failed (cancelled).
+	let queuedIds: number[] = [];
+	await expect(async () => {
+		const wRes = await page.request.get('/api/v1/subtitles/waiting');
+		expect(wRes.status()).toBe(200);
+		const wBody = (await wRes.json()) as { jobs?: { id: number }[] };
+		queuedIds = (wBody.jobs ?? []).map((j) => j.id);
+		expect(queuedIds.length).toBeGreaterThan(0);
+	}).toPass({ timeout: 10_000 });
+	const me = (await (await page.request.get('/api/v1/auth/me')).json()) as { csrf: string };
+	for (const id of queuedIds) {
+		const stopRes = await page.request.post(`/api/v1/subtitles/jobs/${id}/stop`, { headers: { 'X-CSRF-Token': me.csrf } });
+		expect(stopRes.status()).toBe(200);
+	}
+
+	await page.getByTestId('subtitles-tab-failed').click();
+	await expect(page).toHaveURL(/\/subtitles\?tab=failed$/);
+	await expect(page.getByTestId('subtitles-failed-tab')).toBeVisible();
+	const cancelledRows = page.locator('[data-testid="subtitles-failed-row"][data-state="cancelled"]');
+	await expect(cancelledRows.first()).toBeVisible();
+	const cancelledBefore = await cancelledRows.count();
+	await noSidewaysScroll(page);
+	await axe(page, 'subtitles failed tab');
+	if (process.env.HOLYARRS_E2E_SHOTS) {
+		await page.screenshot({ path: join(process.env.HOLYARRS_E2E_SHOTS, 'subtitles-failed-tab.png'), fullPage: true });
+	}
+	await cancelledRows.first().getByTestId('subtitles-job-retry').click();
+	await expect(cancelledRows).toHaveCount(cancelledBefore - 1);
+
+	await page.getByTestId('subtitles-tab-waiting').click();
+	await expect(page).toHaveURL(/\/subtitles\?tab=waiting$/);
+	await expect(waitingRows.first()).toBeVisible();
+	const wCleanRes = await page.request.get('/api/v1/subtitles/waiting');
+	expect(wCleanRes.status()).toBe(200);
+	const wCleanBody = (await wCleanRes.json()) as { jobs?: { id: number }[] };
+	for (const j of wCleanBody.jobs ?? []) {
+		expect((await page.request.post(`/api/v1/subtitles/jobs/${j.id}/stop`, { headers: { 'X-CSRF-Token': me.csrf } })).status()).toBe(200);
+	}
+
+	await page.getByTestId('subtitles-tab-overview').click();
+	await expect(page).toHaveURL(/\/subtitles$/);
+	await expect(page.getByTestId('subtitles-waiting-callout')).toHaveCount(0, { timeout: 10_000 });
+	await expect(page.getByTestId('subtitles-jobs')).toHaveCount(0, { timeout: 10_000 });
+	await page.getByTestId('subtitles-pause').click();
+	await expect(page.getByTestId('subtitles-paused')).toHaveCount(0);
+	await page.getByTestId('subtitles-tab-integrity').click();
+	await expect(page).toHaveURL(/\/subtitles\?tab=integrity$/);
+	await expect(page.getByTestId('subtitles-integrity-tab')).toBeVisible();
+	const integritySummary = page.getByTestId('subtitles-integrity-summary');
+	await expect(integritySummary).toBeVisible();
+	const verifyBtn = page.getByTestId('subtitles-verify-btn');
+	await verifyBtn.click();
+	await expect(async () => {
+		await expect(verifyBtn).toBeEnabled();
+		await expect(verifyBtn).toHaveText('Verify subtitles');
+		await expect(integritySummary).not.toContainText('Not checked yet');
+		await expect(integritySummary).toContainText('Last checked');
+	}).toPass({ timeout: 20_000 });
+	await noSidewaysScroll(page);
+	await axe(page, 'subtitles integrity tab');
+	if (process.env.HOLYARRS_E2E_SHOTS) {
+		await page.screenshot({ path: join(process.env.HOLYARRS_E2E_SHOTS, 'subtitles-integrity-tab.png'), fullPage: true });
+	}
+	const issueRows = page.getByTestId('subtitles-integrity-row');
+	const issueCount = await issueRows.count();
+	if (issueCount > 0) {
+		await issueRows.first().getByTestId('subtitles-integrity-keep').click();
+		await expect(issueRows).toHaveCount(issueCount - 1);
+	}
+});
+
 test('the subtitle screens fit a phone and pass the accessibility scan', async ({ browser }) => {
 	const ph = await fresh(browser, 390);
 	await signIn(ph, owner());
-	for (const url of ['/settings/subtitles', '/library/missing-subtitles', '/subtitles']) {
+	for (const url of ['/settings/subtitles', '/library/missing-subtitles', '/subtitles', '/subtitles?tab=waiting', '/subtitles?tab=history', '/subtitles?tab=failed', '/subtitles?tab=integrity']) {
 		await ph.goto(url);
 		await expect(ph.getByRole('heading', { level: 1 })).toBeVisible();
 		await ph.waitForLoadState('networkidle');

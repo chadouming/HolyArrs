@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -30,7 +31,7 @@ var (
 	// IdleStop is how long the runner stays after its last call.
 	IdleStop = 5 * time.Minute
 	// StartLimit is how long a start may take before it is given up.
-	StartLimit = 2 * time.Minute
+	StartLimit = 5 * time.Minute
 )
 
 const (
@@ -49,6 +50,39 @@ func Find() (path string, ok bool) {
 	}
 	fi, err := os.Stat(path)
 	return path, err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0
+}
+
+// UsesOpenVINO reports whether the built-in translator runner uses OpenVINO.
+func UsesOpenVINO() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("HOLYARRS_OV_TRANSLATE"))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	}
+	runnerPath := strings.TrimSpace(os.Getenv(EnvPath))
+	if runnerPath == "" {
+		runnerPath = DefaultPath
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(runnerPath), "llm_openvino_server.py")); err == nil {
+		return true
+	}
+	f, err := os.Open(runnerPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf, _ := io.ReadAll(io.LimitReader(f, 512))
+	return strings.Contains(string(buf), "llm_openvino_server.py")
+}
+
+// OpenVINOHyMTINT4 reports whether Hy-MT2 1.8B uses INT4 OpenVINO weights.
+func OpenVINOHyMTINT4() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("HOLYARRS_OV_HYMT_INT4"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // MaxDefaultThreads caps the default: on a machine that is also doing other
@@ -94,6 +128,11 @@ func LlamaNoFlashAttn() bool {
 // slots is how many calls the runner takes at once.
 func (o Options) slots() int { return max(o.Parallel, 1) }
 
+func sameExceptParallel(a, b Options) bool {
+	a.Parallel, b.Parallel = 0, 0
+	return a == b
+}
+
 // proc is one started runner process.
 type proc struct {
 	cmd       *exec.Cmd
@@ -118,13 +157,14 @@ type Runner struct {
 
 	start sync.Mutex // one Ensure at a time
 
-	mu     sync.Mutex
-	cur    *proc
-	ready  bool // cur answered its health check
-	busy   int  // calls between Ensure and Used
-	idle   *time.Timer
-	last   int // pid of the last process started, for tests
-	closed bool
+	mu       sync.Mutex
+	cur      *proc
+	ready    bool // cur answered its health check
+	busy     int  // calls between Ensure and Used
+	reserved int  // slots reserved across clients via Reserve
+	idle     *time.Timer
+	last     int // pid of the last process started, for tests
+	closed   bool
 }
 
 // NewRunner returns a Runner that passes the process's own lines to log.
@@ -140,6 +180,50 @@ func (r *Runner) Running() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.cur != nil
+}
+
+// Resident reports whether a runner process is loaded in memory.
+func (r *Runner) Resident() bool {
+	return r.Running()
+}
+
+// Active reports whether a runner process is serving at least one call.
+func (r *Runner) Active() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cur != nil && r.busy > 0
+}
+
+// Load returns the number of calls currently reserved on this runner across
+// all clients.
+func (r *Runner) Load() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.reserved
+}
+
+// Reserve increments the runner's reserved call count and returns an idempotent
+// release function that decrements it.
+func (r *Runner) Reserve() func() {
+	if r == nil {
+		return func() {}
+	}
+	r.mu.Lock()
+	r.reserved++
+	r.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			r.mu.Lock()
+			if r.reserved > 0 {
+				r.reserved--
+			}
+			r.mu.Unlock()
+		})
+	}
 }
 
 func (r *Runner) pid() int {
@@ -168,7 +252,7 @@ func (r *Runner) Ensure(ctx context.Context, o Options) (baseURL, key string, er
 	if r.idle != nil {
 		r.idle.Stop()
 	}
-	if p := r.cur; p != nil && r.ready && p.opts == o {
+	if p := r.cur; p != nil && r.ready && (p.opts == o || (r.busy > 0 && sameExceptParallel(p.opts, o))) {
 		r.busy++
 		r.mu.Unlock()
 		return p.base, p.key, nil
@@ -304,6 +388,9 @@ func (r *Runner) launch(o Options) (*proc, error) {
 	}
 	if o.GPU != "" {
 		args = append(args, "--gpu-layers", "999", "--device", o.GPU)
+		if o.slots() >= 4 {
+			args = append(args, "--batch-size", "4096", "--ubatch-size", "512")
+		}
 		if !LlamaNoFlashAttn() {
 			if o.FlashAttn {
 				args = append(args, "--flash-attn", "on")

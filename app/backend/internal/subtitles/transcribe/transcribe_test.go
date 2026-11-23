@@ -382,3 +382,38 @@ func TestLinesKeepSegmentTextWhenPiecesAreBroken(t *testing.T) {
 		t.Fatalf("lines %+v", lines)
 	}
 }
+
+func TestRunPassesAudioOnlyAndThreadFlagsToFFmpeg(t *testing.T) {
+	o := setup(t, "en", "eng")
+	argsFile := filepath.Join(t.TempDir(), "ffmpeg-args.txt")
+	wrapper := filepath.Join(t.TempDir(), "ffmpeg-wrapper")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s ' \"$@\" >> %q\nprintf '\\n' >> %q\nexec %q \"$@\"\n", argsFile, argsFile, progs.FFmpeg)
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o.Programs.FFmpeg = wrapper
+	if _, err := Run(context.Background(), "video.mkv", Track{Index: 0, Language: "eng", Seconds: 1200}, "en", o); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) == 0 {
+		t.Fatal("expected at least one ffmpeg invocation")
+	}
+	firstLine := " " + lines[0] + " "
+	beforeInput, afterInput, hasInput := strings.Cut(firstLine, " -i ")
+	if !hasInput {
+		t.Fatalf("expected -i in initial ffmpeg extraction args %q", lines[0])
+	}
+	if !strings.Contains(" "+beforeInput+" ", " -threads 2 ") {
+		t.Fatalf("expected -threads 2 before -i in ffmpeg extraction args %q", lines[0])
+	}
+	for _, want := range []string{" -vn ", " -sn ", " -dn "} {
+		if !strings.Contains(" "+afterInput+" ", want) {
+			t.Fatalf("expected %q after -i in initial ffmpeg extraction args %q", strings.TrimSpace(want), lines[0])
+		}
+	}
+}

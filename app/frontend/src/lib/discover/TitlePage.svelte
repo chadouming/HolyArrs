@@ -425,7 +425,8 @@
 			{#snippet byline()}{#if owned}<AskedByLine {askers} />{#if ownState.kind !== 'have' && ownState.kind !== 'downloading'}<SearchOutcomeLine titleId={owned.id} />{/if}{/if}{/snippet}
 			{#snippet actions()}
 				{#if owned}
-					<ActionButton icon={ownState.kind === 'have' ? 'check' : ownState.kind === 'failed' ? 'refresh' : ownState.kind === 'downloading' ? 'download' : 'search'} label={ownState.label} caption={ownState.kind === 'failed' && manage ? t('discover.titlePage.retry') : ownState.kind === 'missing' && manage ? t('discover.titlePage.searchNow') : ownState.label} primary onclick={() => (manage && (ownState.kind === 'failed' || ownState.kind === 'missing') ? own.ownRun('search') : own.setTab('library'))} data-testid="hero-library" />
+					{@const ownCaption = ownState.kind === 'failed' && manage ? t('discover.titlePage.retry') : ownState.kind === 'missing' && manage ? t('discover.titlePage.searchNow') : ownState.label}
+					<ActionButton icon={ownState.kind === 'have' ? 'check' : ownState.kind === 'failed' ? 'refresh' : ownState.kind === 'downloading' ? 'download' : 'search'} label={ownCaption === ownState.label ? ownState.label : `${ownCaption}: ${ownState.label}`} caption={ownCaption} primary onclick={() => (manage && (ownState.kind === 'failed' || ownState.kind === 'missing') ? own.ownRun('search') : own.setTab('library'))} data-testid="hero-library" />
 					{#if manage && ownState.kind !== 'missing'}<WatchLinks titleId={owned.id} />{/if}
 					{#if manage || mayReport || mayHide}<ActionMenu label={t('discover.titlePage.moreActions')} caption={t('discover.titlePage.more')} icon="more" items={titleMenu} />{/if}
 					{#if mayAsk}{@render ask4kButton(d)}{/if}
@@ -434,9 +435,9 @@
 					{/if}
 				{:else if manage && !d.neverAdd}
 					{#if d.kind === 'movie' && d.movie}
-						<ActionButton icon="plus" label={t('discover.titlePage.addToTheLibrary', { name: d.name })} caption={t('discover.titlePage.addToLibrary')} primary onclick={() => addMovie?.open(d.movie as LookupMovie)} />
+						<ActionButton icon="plus" label={`${t('discover.titlePage.addToLibrary')}: ${d.name}`} caption={t('discover.titlePage.addToLibrary')} title={t('discover.titlePage.addToTheLibrary', { name: d.name })} primary onclick={() => addMovie?.open(d.movie as LookupMovie)} />
 					{:else if d.kind === 'show' && d.show}
-						<ActionButton icon="plus" label={t('discover.titlePage.addToTheLibrary', { name: d.name })} caption={t('discover.titlePage.addToLibrary')} primary onclick={() => addShow?.open(d.show as LookupShow)} />
+						<ActionButton icon="plus" label={`${t('discover.titlePage.addToLibrary')}: ${d.name}`} caption={t('discover.titlePage.addToLibrary')} title={t('discover.titlePage.addToTheLibrary', { name: d.name })} primary onclick={() => addShow?.open(d.show as LookupShow)} />
 					{/if}
 				{:else if mayAsk && !d.neverAdd}
 					{#if d.kind === 'movie'}

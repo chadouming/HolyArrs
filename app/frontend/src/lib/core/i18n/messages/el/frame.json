@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Καθαρίστηκε από το Πρόγραμμα λήψης",
 	"frame.feeds.clearStill": "Δεν έχει καθαριστεί ακόμα",
 	"frame.error.pageGone": "Αυτή η σελίδα δεν υπάρχει. Ο σύνδεσμος ίσως είναι παλιός ή λάθος.",
-	"frame.nav.subtitles": "Υπότιτλοι"
+	"frame.nav.subtitles": "Υπότιτλοι",
+	"frame.nav.transcode": "Μετακωδικοποίηση"
 }

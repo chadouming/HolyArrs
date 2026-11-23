@@ -12,6 +12,7 @@ import (
 // sessionRow is the stored side of one session.
 type sessionRow struct {
 	perms, created, rotated, seen, expires, localAuthAt, family string
+	replaced                                                     bool
 }
 
 // sessionFamily is the public id of the session a cookie hash belongs to.
@@ -25,9 +26,9 @@ func sessionFamily(ctx context.Context, q conn, hash string) (string, error) {
 // into who.
 func sessionBy(ctx context.Context, q conn, hash string, who *webserver.Caller) (sessionRow, error) {
 	var s sessionRow
-	err := q.QueryRowContext(ctx, `SELECT `+userCols+`, s.csrf, s.created_at, s.rotated_at, s.last_seen_at, s.expires_at, s.auth_method, s.local_auth_at, s.family, COALESCE(u.password_hash, '') = ''
+	err := q.QueryRowContext(ctx, `SELECT `+userCols+`, s.csrf, s.created_at, s.rotated_at, s.last_seen_at, s.expires_at, s.auth_method, s.local_auth_at, s.family, s.replaced, COALESCE(u.password_hash, '') = ''
 		FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.hash = ? AND u.state = 'active'`, hash).
-		Scan(&who.UserID, &who.Name, &who.Role, &s.perms, &who.TwoFactor, &who.MaxRating, &who.RatingCountry, &who.CSRF, &s.created, &s.rotated, &s.seen, &s.expires, &who.AuthMethod, &s.localAuthAt, &s.family, &who.NoPassword)
+		Scan(&who.UserID, &who.Name, &who.Role, &s.perms, &who.TwoFactor, &who.MaxRating, &who.RatingCountry, &who.CSRF, &s.created, &s.rotated, &s.seen, &s.expires, &who.AuthMethod, &s.localAuthAt, &s.family, &s.replaced, &who.NoPassword)
 	return s, err
 }
 

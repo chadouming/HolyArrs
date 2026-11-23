@@ -205,3 +205,37 @@ func FuzzReadText(f *testing.F) {
 		}
 	})
 }
+
+func TestReadText_ASSStripsDrawingsAndCoalescesMotionTracked(t *testing.T) {
+	scale := []byte{0x0F, 0x42, 0x40} // 1,000,000 ns = 1 ms
+	info := ebml(tInfo, ebml(tScale, scale))
+	tracks := ebml(idTracks, textTrack(2, "S_TEXT/ASS"))
+	var blocks [][]byte
+	// 100 consecutive motion-tracked 40ms frames of the same sign.
+	for i := 0; i < 100; i++ {
+		rel := int16(i * 40)
+		blocks = append(blocks, group(2, rel, []byte("1,0,Sign,,0,0,0,,{\\pos(50,50)}Sign Text"), 40))
+	}
+	// Vector drawing block that should be skipped.
+	blocks = append(blocks, group(2, 5000, []byte("2,0,Draw,,0,0,0,,{\\p1}m 0 0 l 100 0 l 100 100{\\p0}"), 200))
+	// Separate dialogue with the same text > 150ms later must stay separate.
+	blocks = append(blocks, group(2, 6000, []byte("3,0,Default,,0,0,0,,Sign Text"), 200))
+
+	c1 := cluster(1000, blocks...)
+	seg := bytes.Join([][]byte{info, tracks, c1}, nil)
+	mkvBytes := append(header(), ebml(idSegment, seg)...)
+
+	cues, err := ReadText(context.Background(), bytes.NewReader(mkvBytes), int64(len(mkvBytes)), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cues) != 2 {
+		t.Fatalf("got %d cues, want 2: %+v", len(cues), cues)
+	}
+	if cues[0].Text != "Sign Text" || cues[0].StartMS != 1000 || cues[0].EndMS != 1000+4000 {
+		t.Fatalf("coalesced cue = %+v", cues[0])
+	}
+	if cues[1].Text != "Sign Text" || cues[1].StartMS != 7000 || cues[1].EndMS != 7200 {
+		t.Fatalf("separate cue = %+v", cues[1])
+	}
+}

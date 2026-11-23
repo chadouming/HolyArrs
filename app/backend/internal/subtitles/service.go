@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"os"
 	"path"
@@ -18,6 +19,7 @@ import (
 	"github.com/HolyArrs/holyarrs/app/backend/internal/mediafiles"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
+	"github.com/HolyArrs/holyarrs/app/backend/internal/core/jobs"
 	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate/builtin"
 
@@ -47,6 +49,7 @@ type Publisher interface {
 type Service struct {
 	Store *database.Store
 	Live  Publisher // may be nil
+	Jobs  *jobs.Queue
 	// Vault holds the account details of sites that need an account.
 	Vault *secrets.Vault
 	// HTTP replaces every site's HTTP client. Only tests set it.
@@ -60,17 +63,94 @@ type Service struct {
 	Runners *builtin.Pool
 	// Enqueue adds a Job to the jobs queue. When nil, nothing runs later.
 	Enqueue func(ctx context.Context, kind string, subj *domain.Subject, params map[string]any, key string) error
+	// ExternalGPUVRAMMB reports VRAM MiB currently reserved on GPU index card
+	// by external workloads (such as active or queued transcode jobs).
+	ExternalGPUVRAMMB func(ctx context.Context, card int) int
 
 	// speech hands out the places transcripts run in; see speech.go.
 	speech speechPlaces
 	// paused holds subtitle work in the queue; see pause.go.
 	paused    atomic.Bool
-	mu        sync.Mutex
-	clients   map[int64]cached
-	downloads map[string]*download // model downloads queued or running, by model id
-	gathered  map[string]keptTerms // a title's gathered terms, by title and language
-	devices   []builtin.Device     // the graphics cards last listed
-	devicesAt time.Time
+	mu                sync.Mutex
+	clients           map[int64]cached
+	downloads         map[string]*download // model downloads queued or running, by model id
+	gathered          map[string]keptTerms // a title's gathered terms, by title and language
+	devices           []builtin.Device     // the graphics cards last listed
+	devicesAt         time.Time
+	devicesRefreshing bool
+	devicesWait       chan struct{}
+
+	statsMu      sync.Mutex
+	liveStats    map[int64]liveStat
+	serialTrOnce sync.Once
+	serialTr     chan struct{}
+}
+
+func (s *Service) acquireSerialTranslate(ctx context.Context) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.serialTrOnce.Do(func() {
+		s.serialTr = make(chan struct{}, 1)
+	})
+	select {
+	case s.serialTr <- struct{}{}:
+		var once sync.Once
+		return func() {
+			once.Do(func() {
+				<-s.serialTr
+			})
+		}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+type liveStat struct {
+	kind      string
+	speed     float64
+	unit      string
+	updatedAt time.Time
+}
+
+func (s *Service) setLiveStat(jobID int64, kind string, speed float64, unit string) {
+	if jobID == 0 || speed <= 0 {
+		return
+	}
+	s.statsMu.Lock()
+	if s.liveStats == nil {
+		s.liveStats = map[int64]liveStat{}
+	}
+	s.liveStats[jobID] = liveStat{kind: kind, speed: speed, unit: unit, updatedAt: now()}
+	s.statsMu.Unlock()
+}
+
+func (s *Service) clearLiveStat(jobID int64) {
+	if jobID == 0 {
+		return
+	}
+	s.statsMu.Lock()
+	delete(s.liveStats, jobID)
+	s.statsMu.Unlock()
+}
+
+func (s *Service) getLiveStat(jobID int64) (liveStat, bool) {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+	st, ok := s.liveStats[jobID]
+	return st, ok
+}
+
+func (s *Service) liveStatsForKind(kind string) []float64 {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+	var out []float64
+	for _, st := range s.liveStats {
+		if st.kind == kind && st.speed > 0 {
+			out = append(out, st.speed)
+		}
+	}
+	return out
 }
 
 func (s *Service) event(ctx context.Context, e *domain.Event) {
@@ -96,7 +176,7 @@ type Subtitle struct {
 	Score           *int           `db:"score" json:"score,omitempty"`
 	ScoreParts      []Part         `db:"score_parts,json" json:"score_parts"`
 	Origin          string         `db:"origin" json:"origin"` // found, fetched or by_hand
-	State           string         `db:"state" json:"state"`   // present, replaced, gone, wanted or none_good_enough
+	State           string         `db:"state" json:"state"`   // present, replaced, gone, wanted, none_good_enough or skipped
 	SavedAt         *time.Time     `db:"saved_at" json:"saved_at,omitempty"`
 	Tries           int            `db:"tries" json:"tries"`
 	FirstTriedAt    *time.Time     `db:"first_tried_at" json:"first_tried_at,omitempty"`
@@ -114,6 +194,14 @@ type Subtitle struct {
 	// Picture marks a built-in track stored as pictures, which cannot be
 	// translated. It is worked out from the codec, never stored.
 	Picture bool `json:"picture,omitempty"`
+
+	IntegrityState     *string    `db:"integrity_state" json:"integrity_state,omitempty"`
+	IntegrityIssue     *string    `db:"integrity_issue" json:"integrity_issue,omitempty"`
+	IntegrityNote      *string    `db:"integrity_note" json:"integrity_note,omitempty"`
+	IntegrityCoverage  *float64   `db:"integrity_coverage" json:"integrity_coverage,omitempty"`
+	IntegrityLastMS    *int64     `db:"integrity_last_ms" json:"integrity_last_ms,omitempty"`
+	IntegrityVideoS    *float64   `db:"integrity_video_s" json:"integrity_video_s,omitempty"`
+	IntegrityCheckedAt *time.Time `db:"integrity_checked_at" json:"integrity_checked_at,omitempty"`
 }
 
 // Marks of HolyArrs's own translations.
@@ -134,6 +222,43 @@ type fileCtx struct {
 // video returns the File's full path.
 func (fc *fileCtx) video() string {
 	return filepath.Join(fc.lib, filepath.FromSlash(fc.file.RelativePath))
+}
+
+func (fc *fileCtx) probedVideoSeconds() float64 {
+	if fc.file.MediaInfo != nil {
+		switch v := fc.file.MediaInfo["runtime_seconds"].(type) {
+		case float64:
+			if v > 0 {
+				return v
+			}
+		case int64:
+			if v > 0 {
+				return float64(v)
+			}
+		case int:
+			if v > 0 {
+				return float64(v)
+			}
+		case json.Number:
+			if n, err := v.Float64(); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func (fc *fileCtx) videoSeconds() float64 {
+	if v := fc.probedVideoSeconds(); v > 0 {
+		return v
+	}
+	if fc.item.Runtime != nil && *fc.item.Runtime > 0 {
+		return float64(*fc.item.Runtime * 60)
+	}
+	if fc.title.RuntimeMinutes > 0 {
+		return float64(fc.title.RuntimeMinutes * 60)
+	}
+	return 0
 }
 
 func (fc *fileCtx) videoFacts() Video {
@@ -341,32 +466,82 @@ func (s *Service) Look(ctx context.Context, fileID int64, by domain.Actor) (Stat
 	return s.look(ctx, fc, by)
 }
 
+func besideMatches(rows []Subtitle, beside []Have) bool {
+	presentCount := 0
+	known := make(map[string]bool, len(beside))
+	for _, h := range beside {
+		known[h.Path] = true
+	}
+	for _, r := range rows {
+		if r.Place != "beside" || r.State != "present" {
+			continue
+		}
+		if r.RelativePath == nil || !known[*r.RelativePath] {
+			return false
+		}
+		presentCount++
+	}
+	return presentCount == len(beside)
+}
+
+func wishesMatch(rows []Subtitle, missing []Want) bool {
+	type wkey struct {
+		lang   string
+		forced bool
+	}
+	wantByKey := make(map[wkey]bool, len(missing))
+	for _, m := range missing {
+		wantByKey[wkey{m.Language, m.Forced}] = m.HearingImpaired == HIOnly
+	}
+	matched := 0
+	for _, r := range rows {
+		if r.Place != "wish" {
+			continue
+		}
+		hiOnly, ok := wantByKey[wkey{r.Language, r.Forced}]
+		if !ok || r.HearingImpaired != hiOnly {
+			return false
+		}
+		matched++
+	}
+	return matched == len(missing)
+}
+
 func (s *Service) look(ctx context.Context, fc *fileCtx, by domain.Actor) (Status, error) {
 	st := Status{FileID: fc.file.ID, Haves: []Have{}}
+	db := s.Store.Read()
 	// Recover an interrupted save before scanning beside files. Recovery may put
 	// a held subtitle back, and scanning first would see a stale empty folder and
 	// mark the restored row gone.
-	if err := s.Store.Write(ctx, func(tx *sql.Tx) error {
-		return s.finishSaves(ctx, tx, fc)
-	}); err != nil {
+	var pendingSave int
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM subtitle_saves WHERE file_id = ?)", fc.file.ID).Scan(&pendingSave); err != nil {
 		return st, err
 	}
-	wish, err := WishFor(ctx, s.Store.Read(), fc.title.ID, fc.version.ID, fc.item.ID)
+	if pendingSave != 0 {
+		if err := s.Store.Write(ctx, func(tx *sql.Tx) error {
+			return s.finishSaves(ctx, tx, fc)
+		}); err != nil {
+			return st, err
+		}
+	}
+	wish, err := WishFor(ctx, db, fc.title.ID, fc.version.ID, fc.item.ID)
 	if err != nil {
 		return st, err
 	}
 	st.Wish = wish
-	set := ReadSettings(ctx, s.Store.Read())
+	set := ReadSettings(ctx, db)
 	// An unchanged video, with the same size, modified time and built-in settings
 	// as at the last look, is not read again and its recorded tracks stay.
 	stamp, stampOK := stampOf(fc.video(), set)
-	was, _, wasOK := storedStamp(ctx, s.Store.Read(), fc.file.ID)
+	was, _, wasWish, wasOK := storedLook(ctx, db, fc.file.ID)
 	same := stampOK && wasOK && was == stamp
 	var inside []Have
+	var existingRows []Subtitle
 	if same {
-		if inside, err = storedBuiltIn(ctx, s.Store.Read(), fc.file.ID); err != nil {
+		if existingRows, err = ListFor(ctx, db, fc.file.ID); err != nil {
 			return st, err
 		}
+		inside = builtInFromRows(existingRows)
 	} else if set.UseBuiltIn {
 		inside, err = builtIn(fc.video(), set.IgnorePictureTracks)
 		if err != nil {
@@ -381,6 +556,10 @@ func (s *Service) look(ctx context.Context, fc *fileCtx, by domain.Actor) (Statu
 	st.Haves = append(append(st.Haves, inside...), beside...)
 	st.Missing = Missing(wish.Wants, st.Haves)
 	wishJSON, _ := json.Marshal(wish.Wants)
+	if same && wasWish == string(wishJSON) && besideMatches(existingRows, beside) && wishesMatch(existingRows, st.Missing) {
+		sort.SliceStable(st.Haves, func(i, j int) bool { return st.Haves[i].Language < st.Haves[j].Language })
+		return st, nil
+	}
 	err = s.Store.Write(ctx, func(tx *sql.Tx) error {
 		if !same { // otherwise the recorded built-in rows stay
 			if _, err := tx.ExecContext(ctx, "DELETE FROM subtitles WHERE file_id = ? AND place = 'built_in'", fc.file.ID); err != nil {
@@ -514,4 +693,52 @@ func fmtWant(w Want) string {
 		s += " (hearing-impaired)"
 	}
 	return s
+}
+
+// LibraryProgress summarizes subtitle coverage across all active movie and episode files.
+type LibraryProgress struct {
+	Wanted        int     `json:"wanted"`
+	Have          int     `json:"have"`
+	Missing       int     `json:"missing"`
+	Percent       float64 `json:"percent"`
+	FilesTotal    int     `json:"files_total"`
+	FilesDone     int     `json:"files_done"`
+	FilesMissing  int     `json:"files_missing"`
+	UnlookedFiles int     `json:"unlooked_files"`
+}
+
+func libraryProgress(ctx context.Context, db *sql.DB, mc MissingCounts) (LibraryProgress, error) {
+	var p LibraryProgress
+	var filesTotal, unlooked, wanted int
+	err := db.QueryRowContext(ctx, `SELECT count(DISTINCT f.id),
+		count(DISTINCT CASE WHEN l.file_id IS NULL THEN f.id END),
+		COALESCE(sum(CASE WHEN l.file_id IS NOT NULL AND json_type(l.wish) = 'array' THEN json_array_length(l.wish) ELSE 0 END), 0)
+		FROM files f
+		JOIN slots sl ON sl.id = (SELECT MIN(id) FROM slots WHERE file_id = f.id)
+		JOIN items i ON i.id = sl.item_id
+		JOIN titles t ON t.id = i.title_id
+		LEFT JOIN subtitle_looks l ON l.file_id = f.id
+		WHERE f.role = 'main' AND f.state = 'present' AND t.state != 'removed' AND i.kind IN ('movie', 'episode')`).
+		Scan(&filesTotal, &unlooked, &wanted)
+	if err != nil {
+		return p, err
+	}
+	if wanted < mc.Missing {
+		wanted = mc.Missing
+	}
+	if filesTotal < mc.Files {
+		filesTotal = mc.Files
+	}
+	p.FilesTotal = filesTotal
+	p.UnlookedFiles = unlooked
+	p.Wanted = wanted
+	p.Missing = mc.Missing
+	p.Have = max(wanted-mc.Missing, 0)
+	p.FilesMissing = mc.Files
+	looked := max(filesTotal-unlooked, 0)
+	p.FilesDone = max(looked-mc.Files, 0)
+	if wanted > 0 {
+		p.Percent = math.Round((float64(p.Have)/float64(wanted))*1000) / 10
+	}
+	return p, nil
 }

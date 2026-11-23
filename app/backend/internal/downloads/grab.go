@@ -472,7 +472,7 @@ func (m *Manager) giveUp(ctx context.Context, slotID, releaseID int64, reason st
 		}
 		if turnDown {
 			if _, err := tx.ExecContext(ctx, `UPDATE releases SET state = 'turned_down', hold_until = NULL,
-				verdict = json_set(COALESCE(verdict, '{}'), '$.turned_down_reason', ?), updated_at = ? WHERE id = ?`,
+				verdict = json_remove(json_set(COALESCE(verdict, '{}'), '$.turned_down_reason', ?), '$.turned_down_slot_ids'), updated_at = ? WHERE id = ?`,
 				"could not be sent: "+reason, database.FormatTime(m.now()), releaseID); err != nil {
 				return err
 			}

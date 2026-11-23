@@ -171,7 +171,8 @@ func (s *Searcher) HandleSeason(ctx context.Context, r *jobs.Run) error {
 		if e.sl == nil {
 			continue
 		}
-		ok := show || slices.Contains([]mediafiles.SlotState{mediafiles.SlotWanted, mediafiles.SlotBetterWanted, mediafiles.SlotFailed, mediafiles.SlotRejected, mediafiles.SlotStalled}, e.sl.State)
+		ok := show || slices.Contains([]mediafiles.SlotState{mediafiles.SlotWanted, mediafiles.SlotBetterWanted, mediafiles.SlotFailed, mediafiles.SlotRejected, mediafiles.SlotStalled}, e.sl.State) ||
+			anyEp && e.sl.State == mediafiles.SlotNeedsADecision
 		if ok && (e.kept || anyEp || show) {
 			looking = append(looking, e)
 		}
@@ -235,6 +236,12 @@ func (s *Searcher) HandleSeason(ctx context.Context, r *jobs.Run) error {
 		r.SetResult(result)
 		return nil
 	}
+	fromDecision := map[int64]bool{}
+	for _, e := range looking {
+		if e.sl.State == mediafiles.SlotNeedsADecision {
+			fromDecision[e.sl.ID] = true
+		}
+	}
 	// rest puts the Slots still searching back to looking. It also runs when the
 	// search is cut off by a stop or an error, so none is left searching; a stop
 	// has ended ctx, so it writes without it.
@@ -248,7 +255,10 @@ func (s *Searcher) HandleSeason(ctx context.Context, r *jobs.Run) error {
 				continue
 			}
 			to := mediafiles.SlotWanted
-			if e.cur != nil || e.sl.State == mediafiles.SlotBetterWanted {
+			switch {
+			case fromDecision[e.sl.ID]:
+				to = mediafiles.SlotNeedsADecision
+			case e.cur != nil || e.sl.State == mediafiles.SlotBetterWanted:
 				to = mediafiles.SlotBetterWanted
 			}
 			if st := s.slotState(ctx, e.sl.ID); st == mediafiles.SlotSearching {

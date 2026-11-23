@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "از دانلودر پاک شد",
 	"frame.feeds.clearStill": "هنوز پاک نشده",
 	"frame.error.pageGone": "این صفحه وجود ندارد. شاید پیوند قدیمی یا اشتباه باشد.",
-	"frame.nav.subtitles": "زیرنویس‌ها"
+	"frame.nav.subtitles": "زیرنویس‌ها",
+	"frame.nav.transcode": "تبدیل کدک"
 }

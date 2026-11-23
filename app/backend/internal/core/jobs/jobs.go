@@ -24,6 +24,13 @@ var errGateOn = errors.New("a part was turned off; claim through the gate")
 // stop that lands later still reads as a cancel.
 var errCancelled = errors.New("job cancelled")
 
+// Sentinel errors returned by Retry, Promote, and DropQueued.
+var (
+	ErrAlreadyQueued = errors.New("a matching job is already queued or running")
+	ErrCannotRetry   = errors.New("job cannot be retried in its current state")
+	ErrNotQueued     = errors.New("job is not queued")
+)
+
 // Handler does the work of one Job kind. Returning an error retries the Job
 // with back-off until it runs out of attempts.
 type Handler func(ctx context.Context, r *Run) error
@@ -80,8 +87,9 @@ type Queue struct {
 	prepared              map[int64]preparedJob
 	live                  map[int64]context.CancelFunc
 	// running are the Jobs a worker of this Queue runs now.
-	running map[int64]Job
-	gate    Gate
+	running   map[int64]Job
+	cancelled map[int64]bool
+	gate      Gate
 	wake    chan struct{}
 	stop    context.CancelFunc
 	wg      sync.WaitGroup
@@ -129,7 +137,7 @@ func New(s *database.Store, opt Options) *Queue {
 	if opt.PollInterval <= 0 {
 		opt.PollInterval = time.Second
 	}
-	return &Queue{s: s, opt: opt, hand: map[string]Handler{}, probe: map[string]ScheduleProbe{}, scheduleNoop: map[string]scheduleNoop{}, scheduleProbeInFlight: map[string]bool{}, prepared: map[int64]preparedJob{}, live: map[int64]context.CancelFunc{}, running: map[int64]Job{}, wake: make(chan struct{}, 1)}
+	return &Queue{s: s, opt: opt, hand: map[string]Handler{}, probe: map[string]ScheduleProbe{}, scheduleNoop: map[string]scheduleNoop{}, scheduleProbeInFlight: map[string]bool{}, prepared: map[int64]preparedJob{}, live: map[int64]context.CancelFunc{}, running: map[int64]Job{}, cancelled: map[int64]bool{}, wake: make(chan struct{})}
 }
 
 // Handle registers the handler for a Job kind.
@@ -284,36 +292,103 @@ func (r *Run) SaveResult(ctx context.Context, v map[string]any) error {
 
 // Cancel stops a queued or running Job.
 func (q *Queue) Cancel(ctx context.Context, id int64) error {
-	var state string
+	var fresh Job
+	var notify bool
 	err := q.s.Write(ctx, func(tx *sql.Tx) error {
+		var state string
 		if err := tx.QueryRow("SELECT state FROM jobs WHERE id = ?", id).Scan(&state); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return database.ErrNotFound
+			}
 			return err
 		}
-		if state == "queued" {
+		switch state {
+		case "queued":
 			ts := database.FormatTime(time.Now())
-			_, err := tx.Exec("UPDATE jobs SET state = 'cancelled', ended_at = ?, updated_at = ? WHERE id = ?", ts, ts, id)
-			return err
+			if _, err := tx.Exec("UPDATE jobs SET state = 'cancelled', ended_at = ?, updated_at = ? WHERE id = ? AND state = 'queued'", ts, ts, id); err != nil {
+				return err
+			}
+			q.clearPrepared(id)
+			if err := database.Get(ctx, tx, "jobs", id, &fresh); err == nil {
+				notify = true
+			}
+			return nil
+		case "running":
+			q.mu.Lock()
+			c := q.live[id]
+			_, isRunning := q.running[id]
+			if c != nil {
+				q.mu.Unlock()
+				c()
+				return nil
+			}
+			if isRunning {
+				q.mu.Unlock()
+				return fmt.Errorf("job %d is running elsewhere", id)
+			}
+			if q.cancelled == nil {
+				q.cancelled = map[int64]bool{}
+			}
+			q.cancelled[id] = true
+			q.mu.Unlock()
+			ts := database.FormatTime(time.Now())
+			if _, err := tx.Exec("UPDATE jobs SET state = 'cancelled', ended_at = ?, updated_at = ? WHERE id = ? AND state = 'running'", ts, ts, id); err != nil {
+				return err
+			}
+			q.clearPrepared(id)
+			if err := database.Get(ctx, tx, "jobs", id, &fresh); err == nil {
+				notify = true
+			}
+			return nil
 		}
-		return nil
+		return fmt.Errorf("job %d is %s and cannot be cancelled", id, state)
 	})
 	if err != nil {
 		return err
 	}
-	switch state {
-	case "queued":
-		q.clearPrepared(id)
-		return nil
-	case "running":
-		q.mu.Lock()
-		c := q.live[id]
-		q.mu.Unlock()
-		if c == nil {
-			return fmt.Errorf("job %d is running elsewhere", id)
-		}
-		c()
-		return nil
+	if notify {
+		q.notify(fresh)
 	}
-	return fmt.Errorf("job %d is %s and cannot be cancelled", id, state)
+	return nil
+}
+
+// Retry resets a failed or cancelled Job back to queued.
+func (q *Queue) Retry(ctx context.Context, id int64) (Job, error) {
+	var fresh Job
+	err := q.s.Write(ctx, func(tx *sql.Tx) error {
+		var j Job
+		if err := database.Get(ctx, tx, "jobs", id, &j); err != nil {
+			return err
+		}
+		if j.State != "failed" && j.State != "cancelled" {
+			return fmt.Errorf("%w: %s", ErrCannotRetry, j.State)
+		}
+		if j.DedupeKey != nil && *j.DedupeKey != "" {
+			var existing int64
+			err := tx.QueryRow("SELECT id FROM jobs WHERE dedupe_key = ? AND state IN ('queued', 'running') AND id != ?", *j.DedupeKey, id).Scan(&existing)
+			if err == nil {
+				return ErrAlreadyQueued
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
+		ts := database.FormatTime(time.Now().UTC())
+		if _, err := tx.Exec(`UPDATE jobs SET state = 'queued', progress = 0, progress_note = NULL, attempt = 0,
+			run_after = ?, started_at = NULL, ended_at = NULL, error = NULL, result = NULL, updated_at = ? WHERE id = ?`, ts, ts, id); err != nil {
+			return err
+		}
+		q.mu.Lock()
+		delete(q.cancelled, id)
+		q.mu.Unlock()
+		return database.Get(ctx, tx, "jobs", id, &fresh)
+	})
+	if err != nil {
+		return Job{}, err
+	}
+	q.notify(fresh)
+	q.poke()
+	return fresh, nil
 }
 
 func (q *Queue) activeGate() Gate {
@@ -369,10 +444,12 @@ func (q *Queue) enqueueAt(ctx context.Context, kind string, subject *database.Su
 }
 
 func (q *Queue) poke() {
-	select {
-	case q.wake <- struct{}{}:
-	default:
+	q.mu.Lock()
+	if q.wake != nil {
+		close(q.wake)
 	}
+	q.wake = make(chan struct{})
+	q.mu.Unlock()
 }
 
 func (q *Queue) work(ctx context.Context, pool Pool) {
@@ -384,7 +461,11 @@ func (q *Queue) work(ctx context.Context, pool Pool) {
 		stage = "jobs_" + string(pool)
 	}
 	for {
+		var wake chan struct{}
 		for ctx.Err() == nil {
+			q.mu.Lock()
+			wake = q.wake
+			q.mu.Unlock()
 			more := false
 			// A crash outside a Handler (which has its own recover) is
 			// caught here, so the worker keeps going.
@@ -404,7 +485,7 @@ func (q *Queue) work(ctx context.Context, pool Pool) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-		case <-q.wake:
+		case <-wake:
 		}
 	}
 }
@@ -564,6 +645,12 @@ func (r *Run) cancelledByUser() bool {
 
 func (q *Queue) run(ctx context.Context, j Job) {
 	q.mu.Lock()
+	if q.cancelled[j.ID] {
+		delete(q.cancelled, j.ID)
+		delete(q.prepared, j.ID)
+		q.mu.Unlock()
+		return
+	}
 	h := q.hand[j.Kind]
 	entry := q.prepared[j.ID]
 	prepared := entry.value
@@ -598,7 +685,7 @@ func (q *Queue) run(ctx context.Context, j Job) {
 	if ctx.Err() != nil && !r.cancelledByUser() {
 		return // stopping: leave it running, Start recovers it
 	}
-	cancelled := runCtx.Err() != nil && err != nil
+	cancelled := r.cancelledByUser() || (runCtx.Err() != nil && err != nil)
 	q.finish(j, r.result, err, code, cancelled)
 }
 

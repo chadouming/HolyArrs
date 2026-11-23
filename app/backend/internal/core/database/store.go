@@ -165,10 +165,10 @@ func Open(dir string, opt Options) (*Store, error) {
 		return nil, err
 	}
 	s.main.owner, s.events.owner = s, s
-	if s.read, err = openPool(mainPath, readCache, true, 4); err != nil {
+	if s.read, err = openPool(mainPath, readCache, true, 16); err != nil {
 		return nil, err
 	}
-	if s.readEv, err = openPool(evPath, readCache, true, 2); err != nil {
+	if s.readEv, err = openPool(evPath, readCache, true, 4); err != nil {
 		return nil, err
 	}
 	ownerOnly(mainPath, evPath)
@@ -375,7 +375,7 @@ func openPool(path string, cacheKiB int, readOnly bool, conns int) (*sql.DB, err
 		return nil, err
 	}
 	db.SetMaxOpenConns(conns)
-	db.SetMaxIdleConns(conns)
+	db.SetMaxIdleConns(min(conns, 6))
 	db.SetConnMaxIdleTime(5 * time.Minute)
 	if err := db.Ping(); err != nil {
 		_ = db.Close()

@@ -29,7 +29,7 @@
 <style>
 	.ui-tabbar {
 		position: fixed; z-index: 35; inset: auto 0 0; display: none; padding: 4px 6px env(safe-area-inset-bottom);
-		background: var(--sidebar-bg); border-top: 1px solid var(--line);
+		background: color-mix(in srgb, var(--bg) 94%, transparent); border-top: 1px solid var(--line);
 		backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
 	}
 	@media (max-width: 767px) { .ui-tabbar { display: flex; } }

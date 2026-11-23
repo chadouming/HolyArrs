@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Netejat del Gestor de baixades",
 	"frame.feeds.clearStill": "Encara no netejat",
 	"frame.error.pageGone": "Aquesta pàgina no existeix. Potser l'enllaç és antic o està mal escrit.",
-	"frame.nav.subtitles": "Subtítols"
+	"frame.nav.subtitles": "Subtítols",
+	"frame.nav.transcode": "Transcodificació"
 }

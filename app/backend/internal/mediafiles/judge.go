@@ -354,6 +354,29 @@ func scaledSizeLimit(l SizeLimit, runtime int) (int64, int64) {
 
 func sizeMidpoint(lo, hi int64) int64 { return lo + (hi-lo)/2 }
 
+// TurnedDownMatch reports whether a Release with name and hash matches any
+// entry in turned (comparing trimmed, lower-cased names or non-empty hashes).
+func TurnedDownMatch(turned []string, name, hash string) bool {
+	if len(turned) == 0 {
+		return false
+	}
+	n := strings.ToLower(strings.TrimSpace(name))
+	h := strings.ToLower(strings.TrimSpace(hash))
+	for _, td := range turned {
+		t := strings.ToLower(strings.TrimSpace(td))
+		if t == "" {
+			continue
+		}
+		if n != "" && t == n {
+			return true
+		}
+		if h != "" && t == h {
+			return true
+		}
+	}
+	return false
+}
+
 // Judge runs the pipeline of pick-rules.md section 3.1 for one Release.
 // Hard steps all run so every refusal is reported at once.
 func Judge(rel ReleaseFacts, set SlotSet, rules PickRulesBody) Verdict {
@@ -445,7 +468,7 @@ func Judge(rel ReleaseFacts, set SlotSet, rules PickRulesBody) Verdict {
 	default:
 		v.add("hard", "gate", "fail", "the Title is not out yet", 0)
 	}
-	if slices.Contains(set.TurnedDown, rel.Name) || (rel.InfoHash != "" && slices.Contains(set.TurnedDown, rel.InfoHash)) {
+	if TurnedDownMatch(set.TurnedDown, rel.Name, rel.InfoHash) {
 		v.add("hard", "turned_down", "fail", "this Release was turned down for this Slot before", 0)
 	} else {
 		v.add("hard", "turned_down", "pass", "not turned down before", 0)

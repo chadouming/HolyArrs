@@ -51,6 +51,19 @@ func (a *Handlers) Routes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/settings/subtitles/transcriber", a.getTranscriber)
 	m.HandleFunc("POST /api/v1/subtitles/search", a.searchSubtitles)
 	m.HandleFunc("GET /api/v1/subtitles/overview", a.subtitlesOverview)
+	m.HandleFunc("GET /api/v1/subtitles/waiting", a.waitingSubtitles)
+	m.HandleFunc("GET /api/v1/subtitles/history", a.historySubtitles)
+	m.HandleFunc("GET /api/v1/subtitles/failed", a.failedSubtitles)
+	m.HandleFunc("POST /api/v1/subtitles/jobs/{id}/bump", a.bumpSubtitleJob)
+	m.HandleFunc("POST /api/v1/subtitles/jobs/{id}/skip", a.skipSubtitleJob)
+	m.HandleFunc("POST /api/v1/subtitles/jobs/{id}/stop", a.stopSubtitleJob)
+	m.HandleFunc("POST /api/v1/subtitles/jobs/{id}/retry", a.retrySubtitleJob)
+	m.HandleFunc("POST /api/v1/subtitles/jobs/retry-failed", a.retryFailedSubtitleJobs)
+	m.HandleFunc("POST /api/v1/files/{id}/subtitles/skip", a.skipFileSubtitles)
+	m.HandleFunc("GET /api/v1/subtitles/integrity", a.subtitleIntegrity)
+	m.HandleFunc("POST /api/v1/subtitles/verify", a.verifySubtitles)
+	m.HandleFunc("POST /api/v1/subtitles/{id}/replace", a.replaceSubtitle)
+	m.HandleFunc("POST /api/v1/subtitles/{id}/keep", a.keepSubtitle)
 	m.HandleFunc("PUT /api/v1/subtitles/pause", a.putPause)
 	m.HandleFunc("GET /api/v1/subtitles/missing", a.missingSubtitles)
 	m.HandleFunc("POST /api/v1/subtitles/missing/search", a.searchMissingSubtitles)
@@ -175,12 +188,13 @@ func (a *Handlers) putSubtitleWish(w http.ResponseWriter, r *http.Request) {
 			_, _ = a.svc.Look(r.Context(), id, actorOf(r))
 		}
 	}
+	a.svc.queueAllPendingWork(r.Context())
 	ws, _ := Wishes(r.Context(), a.store.Read(), t.ID)
 	webserver.WriteJSON(w, http.StatusOK, map[string]any{"wishes": ws})
 }
 
-func (a *Handlers) queueSubtitleSearch(ctx context.Context, fileID int64) error {
-	return a.svc.Queue(ctx, fileID, nil)
+func (a *Handlers) queueSubtitleSearch(ctx context.Context, fileID int64, params map[string]any) error {
+	return a.svc.Queue(ctx, fileID, params)
 }
 
 func (a *Handlers) searchSubtitles(w http.ResponseWriter, r *http.Request) {
@@ -216,8 +230,10 @@ func (a *Handlers) searchSubtitles(w http.ResponseWriter, r *http.Request) {
 		webserver.Fail(w, http.StatusBadRequest, "send a title_id or a file_id")
 		return
 	}
+	actor := actorOf(r)
 	for _, id := range ids {
-		if err := a.queueSubtitleSearch(ctx, id); err != nil {
+		a.svc.UnskipFile(ctx, id, actor)
+		if err := a.queueSubtitleSearch(ctx, id, map[string]any{"by_hand": true}); err != nil {
 			webserver.Internal(w, "api", err)
 			return
 		}
@@ -304,22 +320,38 @@ func (a *Handlers) searchMissingSubtitles(w http.ResponseWriter, r *http.Request
 		webserver.Fail(w, http.StatusBadRequest, "kind must be movie or episode")
 		return
 	}
-	rows, _, err := MissingList(r.Context(), a.store.Read(), MissingFilter{Language: lang, Kind: in.Kind, TitleID: in.TitleID}, 1000, 0)
-	if err != nil {
-		webserver.Internal(w, "api", err)
-		return
+	a.svc.queueAllPendingWork(r.Context())
+	var protected map[int64]bool
+	var params map[string]any
+	if in.TitleID == 0 {
+		protected = a.svc.protectedWorkFileIDs(r.Context())
+	} else {
+		params = map[string]any{"by_hand": true}
 	}
+	const batchSize = 500
 	seen := map[int64]bool{}
 	ids := []int64{}
-	for _, m := range rows {
-		if seen[m.FileID] {
-			continue
-		}
-		seen[m.FileID] = true
-		ids = append(ids, m.FileID)
-		if err := a.queueSubtitleSearch(r.Context(), m.FileID); err != nil {
+	filter := MissingFilter{Language: lang, Kind: in.Kind, TitleID: in.TitleID}
+	db := a.store.Read()
+	for offset := 0; ; offset += batchSize {
+		rows, total, err := MissingList(r.Context(), db, filter, batchSize, offset)
+		if err != nil {
 			webserver.Internal(w, "api", err)
 			return
+		}
+		for _, m := range rows {
+			if seen[m.FileID] || protected[m.FileID] {
+				continue
+			}
+			seen[m.FileID] = true
+			ids = append(ids, m.FileID)
+			if err := a.queueSubtitleSearch(r.Context(), m.FileID, params); err != nil {
+				webserver.Internal(w, "api", err)
+				return
+			}
+		}
+		if len(rows) < batchSize || offset+len(rows) >= total {
+			break
 		}
 	}
 	webserver.WriteJSON(w, http.StatusAccepted, map[string]any{"queued": len(ids), "file_ids": ids, "job_ids": a.subtitleJobIDs(r.Context(), ids)})
@@ -471,7 +503,7 @@ func (a *Handlers) ServeSiteTest(w http.ResponseWriter, r *http.Request) {
 
 // NewService builds the subtitle service for a server that was not given one.
 func NewService(store *database.Store, vault *secrets.Vault, live *webserver.LiveHub, q *jobs.Queue) *Service {
-	sv := &Service{Store: store, Vault: vault}
+	sv := &Service{Store: store, Vault: vault, Jobs: q}
 	if live != nil {
 		sv.Live = live
 	}

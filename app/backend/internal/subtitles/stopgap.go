@@ -116,7 +116,7 @@ func (s *Service) stopgap(ctx context.Context, sc *searchCtx, t target, choices 
 	// The choices are ranked by score already; AI-translated files go first.
 	sort.SliceStable(made, func(i, j int) bool { return madeRank(made[i].MachineMade) < madeRank(made[j].MachineMade) })
 	for _, c := range made {
-		p, err := s.fetchAndSave(ctx, sc.fc, t, c, sc.bySite[c.Site], sc.set, sc.by)
+		p, err := s.fetchAndSave(ctx, sc.fc, t, c, sc.bySite[c.Site], sc.set, sc.by, true)
 		if err != nil {
 			out.Reason = err.Error()
 			continue

@@ -316,7 +316,7 @@ export async function openFromSearch(page: Page, words: string, name: string, ki
 /** addFromSearch opens a movie or show from Search and opens its Add dialog. */
 export async function addFromSearch(page: Page, words: string, name: string, kind?: 'movie' | 'show') {
 	await openFromSearch(page, words, name, kind);
-	await page.getByRole('button', { name: `Add ${name}` }).click();
+	await page.getByRole('button', { name: `Add to library: ${name}` }).click();
 	return page.getByRole('dialog');
 }
 

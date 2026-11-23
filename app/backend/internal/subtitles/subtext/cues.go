@@ -79,6 +79,7 @@ func parseTimed(text string) []Cue {
 func parseASS(text string) []Cue {
 	start, end, textAt, fields := 1, 2, 9, 10
 	var out []Cue
+	lastByText := map[string]int{}
 	for line := range strings.Lines(text) {
 		trim := strings.TrimSpace(line)
 		if f, ok := strings.CutPrefix(trim, "Format:"); ok {
@@ -109,7 +110,17 @@ func parseASS(text string) []Cue {
 		if !ok1 || !ok2 {
 			continue
 		}
-		out = append(out, Cue{StartMS: a, EndMS: b, Text: ASSText(parts[textAt])})
+		txt := ASSText(parts[textAt])
+		if txt == "" {
+			continue
+		}
+		if idx, ok := lastByText[txt]; ok && a <= out[idx].EndMS+150 && b >= out[idx].StartMS-150 {
+			out[idx].StartMS = min(out[idx].StartMS, a)
+			out[idx].EndMS = max(out[idx].EndMS, b)
+			continue
+		}
+		out = append(out, Cue{StartMS: a, EndMS: b, Text: txt})
+		lastByText[txt] = len(out) - 1
 		if len(out) > MaxCues {
 			break
 		}
@@ -117,21 +128,31 @@ func parseASS(text string) []Cue {
 	return out
 }
 
+var stripSimpleTags = strings.NewReplacer(
+	"<i>", "", "</i>", "",
+	"<b>", "", "</b>", "",
+	"<u>", "", "</u>", "",
+)
+
 // ASSText turns the text field of an ASS or SSA event into plain cue text:
 // override blocks go, except italic, bold and underline, which become tags;
-// \N and \n become line breaks and \h a space.
+// vector drawings (\p1 .. \p0) are skipped; \N and \n become line breaks and
+// \h a space.
 func ASSText(s string) string {
 	var sb strings.Builder
+	drawing := false
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
 		case c == '{':
 			j := strings.IndexByte(s[i:], '}')
 			if j < 0 {
-				return strings.TrimSpace(sb.String())
+				return finishASSText(sb.String())
 			}
-			sb.WriteString(styleTags(s[i+1 : i+j]))
+			sb.WriteString(parseASSBlock(s[i+1:i+j], &drawing))
 			i += j
+		case drawing:
+			continue
 		case c == '\\' && i+1 < len(s) && (s[i+1] == 'N' || s[i+1] == 'n'):
 			sb.WriteByte('\n')
 			i++
@@ -142,15 +163,27 @@ func ASSText(s string) string {
 			sb.WriteByte(c)
 		}
 	}
-	return strings.TrimSpace(sb.String())
+	return finishASSText(sb.String())
 }
 
-// styleTags turns the italic, bold and underline codes of one override block
-// into tags, in the order they appear.
-func styleTags(block string) string {
+func finishASSText(raw string) string {
+	out := strings.TrimSpace(raw)
+	if out == "" || strings.TrimSpace(stripSimpleTags.Replace(out)) == "" {
+		return ""
+	}
+	return out
+}
+
+// parseASSBlock updates vector drawing mode on \p<N> codes and returns simple
+// style tags outside drawing mode, in the order they appear.
+func parseASSBlock(block string, drawing *bool) string {
 	var sb strings.Builder
 	for _, code := range strings.Split(block, `\`) {
-		if len(code) != 2 || (code[1] != '0' && code[1] != '1') {
+		if on, ok := assDrawingCode(code); ok {
+			*drawing = on
+			continue
+		}
+		if *drawing || len(code) != 2 || (code[1] != '0' && code[1] != '1') {
 			continue
 		}
 		var tag string
@@ -171,6 +204,25 @@ func styleTags(block string) string {
 		}
 	}
 	return sb.String()
+}
+
+// assDrawingCode matches \p<digits> (or \P<digits>) strictly, returning
+// whether drawing mode is on (>0) or off (0).
+func assDrawingCode(code string) (on, ok bool) {
+	if len(code) < 2 || (code[0] != 'p' && code[0] != 'P') {
+		return false, false
+	}
+	nonZero := false
+	for i := 1; i < len(code); i++ {
+		d := code[i]
+		if d < '0' || d > '9' {
+			return false, false
+		}
+		if d != '0' {
+			nonZero = true
+		}
+	}
+	return nonZero, true
 }
 
 // WriteSRT writes cues as an SRT subtitle numbered from 1. A cue with no text

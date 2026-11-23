@@ -126,17 +126,26 @@ func ReadText(ctx context.Context, r io.ReaderAt, size int64, track int) ([]subt
 }
 
 type mkv struct {
-	e      walker
-	track  uint64
-	scale  uint64
-	codec  string
-	found  bool
-	zlib   bool
-	strip  []byte
-	cues   []subtext.Cue
-	open   []bool // cue had no duration
-	text   int
-	clTime uint64
+	e       walker
+	track   uint64
+	scale   uint64
+	codec   string
+	found   bool
+	zlib    bool
+	strip   []byte
+	cues    []subtext.Cue
+	open    []bool // cue had no duration
+	lastASS map[string]int
+	text    int
+	clTime  uint64
+}
+
+func (m *mkv) isASS() bool {
+	switch strings.ToUpper(m.codec) {
+	case "S_TEXT/ASS", "S_TEXT/SSA", "S_ASS", "S_SSA":
+		return true
+	}
+	return false
 }
 
 // damaged reports whether err comes from a damaged or cut-off file rather
@@ -349,20 +358,40 @@ func (m *mkv) block(start, end int64, dur uint64, hasDur bool) error {
 	if text == "" {
 		return nil
 	}
-	if len(m.cues) >= subtext.MaxCues || m.text+len(text) > subtext.MaxText {
-		return subtext.ErrTooBig
-	}
 	t := int64(m.clTime) + rel
 	if t < 0 {
 		t = 0
 	}
 	startMS := ms(uint64(t), m.scale)
-	c := subtext.Cue{StartMS: startMS, Text: text}
-	if hasDur && dur > 0 {
-		c.EndMS = startMS + ms(dur, m.scale)
+	var endMS int64
+	openEnd := !(hasDur && dur > 0)
+	if !openEnd {
+		endMS = startMS + ms(dur, m.scale)
 	}
-	m.cues = append(m.cues, c)
-	m.open = append(m.open, !(hasDur && dur > 0))
+	ass := m.isASS()
+	if ass {
+		if idx, ok := m.lastASS[text]; ok {
+			if !m.open[idx] && !openEnd && startMS <= m.cues[idx].EndMS+150 && endMS >= m.cues[idx].StartMS-150 {
+				m.cues[idx].StartMS = min(m.cues[idx].StartMS, startMS)
+				m.cues[idx].EndMS = max(m.cues[idx].EndMS, endMS)
+				return nil
+			}
+			if m.open[idx] && openEnd && startMS == m.cues[idx].StartMS {
+				return nil
+			}
+		}
+	}
+	if len(m.cues) >= subtext.MaxCues || m.text+len(text) > subtext.MaxText {
+		return subtext.ErrTooBig
+	}
+	m.cues = append(m.cues, subtext.Cue{StartMS: startMS, EndMS: endMS, Text: text})
+	m.open = append(m.open, openEnd)
+	if ass {
+		if m.lastASS == nil {
+			m.lastASS = map[string]int{}
+		}
+		m.lastASS[text] = len(m.cues) - 1
+	}
 	m.text += len(text)
 	return nil
 }
@@ -396,8 +425,7 @@ func (m *mkv) unpack(data []byte) ([]byte, error) {
 
 func (m *mkv) frameText(data []byte) string {
 	s := strings.ToValidUTF8(string(data), "")
-	switch strings.ToUpper(m.codec) {
-	case "S_TEXT/ASS", "S_TEXT/SSA", "S_ASS", "S_SSA":
+	if m.isASS() {
 		// ReadOrder, Layer, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 		parts := strings.SplitN(s, ",", 9)
 		if len(parts) != 9 {

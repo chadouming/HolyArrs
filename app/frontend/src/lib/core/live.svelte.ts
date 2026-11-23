@@ -1,11 +1,12 @@
 // Server event stream with reconnect, resync and one stream shared across tabs.
 
 import { to } from './paths.ts';
-import { api } from './api.ts';
+import { api, ApiError } from './api.ts';
 import { backoff } from './loader.ts';
 
 export type LiveState = 'off' | 'connecting' | 'live' | 'reconnecting';
 export type Listener = (data: unknown, topic: string) => void;
+export type AuthProbeResult = 'ok' | 'unauthorized' | 'error';
 
 interface SourceLike {
 	onopen: ((this: SourceLike, ev: Event) => unknown) | null;
@@ -36,7 +37,11 @@ type Relay =
 const LOCK = 'holyarrs-live';
 
 // Builds a stream; the factory and shared parts can be swapped so tests can fake them.
-export function createLive(factory: SourceFactory = (u) => new EventSource(u) as unknown as SourceLike, shared?: Shared) {
+export function createLive(
+	factory: SourceFactory = (u) => new EventSource(u) as unknown as SourceLike,
+	shared?: Shared,
+	probeAuth?: () => Promise<AuthProbeResult>
+) {
 	const status = $state<{ state: LiveState; last: number; leader: boolean }>({ state: 'off', last: 0, leader: false });
 	const listeners = new Map<string, Set<Listener>>();
 	let src: SourceLike | null = null;
@@ -85,6 +90,30 @@ export function createLive(factory: SourceFactory = (u) => new EventSource(u) as
 	let missed = false;
 	let hideTimer: ReturnType<typeof setTimeout> | undefined;
 	let watching = false;
+	let probing = false;
+	let unauthorizedHandler: (() => void) | null = null;
+
+	async function checkAuth() {
+		if (!probeAuth || probing) return;
+		probing = true;
+		try {
+			const res = await probeAuth();
+			if (status.state === 'off') return;
+			if (res === 'unauthorized') {
+				stop();
+				unauthorizedHandler?.();
+			} else if (res === 'ok' && !hidden() && !paused && status.state === 'reconnecting' && (!shared || status.leader) && !src) {
+				tries = 0;
+				clearTimeout(retry);
+				open(true);
+			}
+		} catch {
+			// Treat unexpected probe failure like an error and let backoff continue.
+		} finally {
+			probing = false;
+		}
+	}
+
 	// A tab hidden for 10 seconds drops its stream and reopens when shown again.
 	function visibility() {
 		clearTimeout(hideTimer);
@@ -97,14 +126,25 @@ export function createLive(factory: SourceFactory = (u) => new EventSource(u) as
 				src?.close();
 				src = null;
 			}, PAUSE_AFTER);
-		} else if (paused) {
-			paused = false;
-			missed = !lastId;
-			if (!shared) return open(true);
-			if (!joined) return;
-			checkLast = true;
-			send({ t: 'hello' });
-			lead();
+		} else {
+			tries = 0;
+			clearTimeout(retry);
+			if (status.state === 'off') {
+				paused = false;
+				return;
+			}
+			if (paused) {
+				paused = false;
+				missed = !lastId;
+				if (!shared) return open(true);
+				if (!joined) return;
+				checkLast = true;
+				send({ t: 'hello' });
+				lead();
+			} else if (status.state === 'reconnecting' || (status.state === 'connecting' && !src) || (status.state === 'live' && !src && (!shared || status.leader))) {
+				if (!shared || status.leader) open(true);
+				else if (shared && joined && !status.leader) lead();
+			}
 		}
 	}
 
@@ -144,16 +184,28 @@ export function createLive(factory: SourceFactory = (u) => new EventSource(u) as
 			}
 		};
 		src.onerror = () => {
+			if (status.state === 'off') return;
+			if (hidden()) {
+				clearTimeout(retry);
+				clearTimeout(hideTimer);
+				src?.close();
+				src = null;
+				paused = true;
+				if (shared) withdraw();
+				return;
+			}
 			if (!lastId && status.state === 'live') missed = true;
 			const quiet = status.state === 'live' && tries === 0;
 			if (!quiet) setState('reconnecting');
 			src?.close();
 			src = null;
 			clearTimeout(retry);
+			const check = probeAuth && !probing && tries >= 1;
 			retry = setTimeout(() => {
 				if ((quiet ? status.state === 'live' : status.state === 'reconnecting') && (!shared || status.leader)) open(true);
 			}, quiet ? 0 : backoff(tries));
 			tries++;
+			if (check) void checkAuth();
 		};
 		src.onmessage = (e: MessageEvent) => {
 			const id = e.lastEventId ?? '';
@@ -246,6 +298,7 @@ export function createLive(factory: SourceFactory = (u) => new EventSource(u) as
 	function stop() {
 		clearTimeout(retry);
 		clearTimeout(hideTimer);
+		tries = 0;
 		paused = false;
 		joined = false;
 		withdraw();
@@ -263,11 +316,24 @@ export function createLive(factory: SourceFactory = (u) => new EventSource(u) as
 		return () => set.delete(fn);
 	}
 
-	return { status, start, stop, on, dispatch, interest };
+	function onUnauthorized(fn: (() => void) | null) {
+		unauthorizedHandler = fn;
+	}
+
+	return { status, start, stop, on, dispatch, interest, onUnauthorized };
+}
+
+async function probeAuth(): Promise<AuthProbeResult> {
+	try {
+		await api.get('/auth/me');
+		return 'ok';
+	} catch (e) {
+		return e instanceof ApiError && e.status === 401 ? 'unauthorized' : 'error';
+	}
 }
 
 // The one app-wide stream.
-export const live = createLive(undefined, sharedParts());
+export const live = createLive(undefined, sharedParts(), probeAuth);
 
 // Close the stream when the module is replaced in dev.
 if (import.meta.hot) import.meta.hot.dispose(() => live.stop());

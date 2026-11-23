@@ -110,3 +110,106 @@ func TestRunPartsStopsOnARefusal(t *testing.T) {
 		t.Fatalf("partial %v total %d", res.Partial(), res.Total)
 	}
 }
+
+func TestRunPartsFillsAllPartsOnUnevenChunkCounts(t *testing.T) {
+	c := &slowClient{}
+	res, err := RunParts(context.Background(), c, jobOf(350, 20), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Lines) != 350 || res.Translated != 350 || res.Total != 350 || res.Partial() || res.Calls != 18 {
+		t.Fatalf("result: %d lines, %d of %d translated, %d calls", len(res.Lines), res.Translated, res.Total, res.Calls)
+	}
+	for i, l := range res.Lines {
+		if l != fmt.Sprintf("T:line %d", i+1) || !res.Done[i] {
+			t.Fatalf("line %d is %q", i+1, l)
+		}
+	}
+	if m := c.most.Load(); m < 7 || m > 8 {
+		t.Fatalf("%d calls at once, want 7 or 8", m)
+	}
+}
+
+type slotSpeedClient struct {
+	slots     chan time.Duration
+	slowCalls atomic.Int32
+	fastCalls atomic.Int32
+}
+
+func (c *slotSpeedClient) Translate(_ context.Context, b Batch) ([]Line, error) {
+	d := <-c.slots
+	defer func() { c.slots <- d }()
+	if d >= 50*time.Millisecond {
+		c.slowCalls.Add(1)
+	} else {
+		c.fastCalls.Add(1)
+	}
+	time.Sleep(d)
+	out := make([]Line, len(b.Lines))
+	for i, l := range b.Lines {
+		out[i] = Line{N: l.N, Text: "T:" + l.Text}
+	}
+	return out, nil
+}
+
+// A fast worker steals remaining chunks when another worker is 10x slower,
+// finishing well ahead of static sharding while keeping all lines in order.
+func TestRunPartsDynamicWorkStealing(t *testing.T) {
+	slots := make(chan time.Duration, 2)
+	slots <- 100 * time.Millisecond
+	slots <- 5 * time.Millisecond
+	c := &slotSpeedClient{slots: slots}
+
+	start := time.Now()
+	res, err := RunParts(context.Background(), c, jobOf(240, 20), 2)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Translated != 240 || res.Total != 240 || res.Partial() {
+		t.Fatalf("translated %d of %d (partial=%v)", res.Translated, res.Total, res.Partial())
+	}
+	for i, l := range res.Lines {
+		if l != fmt.Sprintf("T:line %d", i+1) || !res.Done[i] {
+			t.Fatalf("line %d = %q (done=%v)", i+1, l, res.Done[i])
+		}
+	}
+	// Static sharding of 12 chunks across 2 workers would take >= 600ms on the slow slot.
+	if elapsed >= 450*time.Millisecond {
+		t.Fatalf("elapsed %s, expected fast worker to steal work from slow slot", elapsed)
+	}
+	if c.fastCalls.Load() <= c.slowCalls.Load()*2 {
+		t.Fatalf("fastCalls=%d slowCalls=%d, expected fast slot to steal most chunks", c.fastCalls.Load(), c.slowCalls.Load())
+	}
+}
+
+type cutClient struct {
+	limit int
+}
+
+func (c cutClient) Translate(_ context.Context, b Batch) ([]Line, error) {
+	if len(b.Lines) > c.limit {
+		return nil, &Error{Kind: KindCut, Msg: "truncated"}
+	}
+	out := make([]Line, len(b.Lines))
+	for i, l := range b.Lines {
+		out[i] = Line{N: l.N, Text: "T:" + l.Text}
+	}
+	return out, nil
+}
+
+// KindCut splits oversized chunks dynamically across workers and translates all lines.
+func TestRunPartsHandlesKindCutSplitting(t *testing.T) {
+	res, err := RunParts(context.Background(), cutClient{limit: 5}, jobOf(100, 20), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Translated != 100 || res.Total != 100 || res.Partial() {
+		t.Fatalf("translated %d of %d (partial=%v)", res.Translated, res.Total, res.Partial())
+	}
+	for i, l := range res.Lines {
+		if l != fmt.Sprintf("T:line %d", i+1) || !res.Done[i] {
+			t.Fatalf("line %d = %q (done=%v)", i+1, l, res.Done[i])
+		}
+	}
+}

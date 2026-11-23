@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Törölve a Letöltőből",
 	"frame.feeds.clearStill": "Még nincs törölve",
 	"frame.error.pageGone": "Ez az oldal nem létezik. Lehet, hogy a link régi vagy elgépelt.",
-	"frame.nav.subtitles": "Feliratok"
+	"frame.nav.subtitles": "Feliratok",
+	"frame.nav.transcode": "Átkódolás"
 }

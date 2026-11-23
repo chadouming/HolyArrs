@@ -78,6 +78,13 @@ var overrides = map[string]Group{
 	"POST /api/v1/downloaders":           Settings, // adding a download app is setup
 	"PUT /api/v1/downloaders/{id}":       Settings,
 	"POST /api/v1/downloaders/{id}/test": Settings,
+	"PUT /api/v1/transcode/settings":              Settings,
+	"POST /api/v1/transcode/profiles":             Settings,
+	"PUT /api/v1/transcode/profiles/{id}":         Settings,
+	"PUT /api/v1/transcode/library-folders/{id}":  Settings,
+	"POST /api/v1/files/{id}/transcode":           Control,
+	"POST /api/v1/files/{id}/transcode/skip":      Control,
+	"POST /api/v1/files/{id}/subtitles/skip":      Control,
 }
 
 // wildOverrides are the override patterns with a {wildcard}, sorted so the
@@ -114,7 +121,7 @@ var adminPrefixes = []string{
 var controlPrefixes = []string{
 	"/api/v1/downloads", "/api/v1/downloaders/", "/api/v1/holding", "/api/v1/needs-decision", "/api/v1/releases",
 	"/api/v1/manual-import", "/api/v1/rename", "/api/v1/imports", "/api/v1/search/", "/api/v1/jobs",
-	"/api/v1/subtitles/", "/api/v1/library/copies/search", "/command", "/queue",
+	"/api/v1/subtitles/", "/api/v1/transcode/", "/api/v1/library/copies/search", "/command", "/queue",
 }
 
 // settingsPrefixes cover how the app is set up and each person's own setup.

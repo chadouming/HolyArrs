@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "பதிவிறக்கியிலிருந்து அழிக்கப்பட்டது",
 	"frame.feeds.clearStill": "இன்னும் அழிக்கப்படவில்லை",
 	"frame.error.pageGone": "இந்தப் பக்கம் இல்லை. இணைப்பு பழையதாகவோ தவறாக எழுதப்பட்டதாகவோ இருக்கலாம்.",
-	"frame.nav.subtitles": "வசனங்கள்"
+	"frame.nav.subtitles": "வசனங்கள்",
+	"frame.nav.transcode": "டிரான்ஸ்கோட்"
 }

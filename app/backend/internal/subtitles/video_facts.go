@@ -30,14 +30,20 @@ func stampOf(video string, set Settings) (videoStamp, bool) {
 
 // storedStamp returns the stamp and hash kept from the last look at fileID.
 func storedStamp(ctx context.Context, db *sql.DB, fileID int64) (videoStamp, string, bool) {
+	st, hash, _, ok := storedLook(ctx, db, fileID)
+	return st, hash, ok
+}
+
+// storedLook returns the stamp, hash, and wish JSON kept from the last look at fileID.
+func storedLook(ctx context.Context, db *sql.DB, fileID int64) (videoStamp, string, string, bool) {
 	var size, mod sql.NullInt64
-	var read, hash sql.NullString
-	err := db.QueryRowContext(ctx, "SELECT video_size, video_modified, video_read, video_hash FROM subtitle_looks WHERE file_id = ?", fileID).
-		Scan(&size, &mod, &read, &hash)
+	var read, hash, wish sql.NullString
+	err := db.QueryRowContext(ctx, "SELECT video_size, video_modified, video_read, video_hash, wish FROM subtitle_looks WHERE file_id = ?", fileID).
+		Scan(&size, &mod, &read, &hash, &wish)
 	if err != nil || !size.Valid || !mod.Valid || !read.Valid {
-		return videoStamp{}, "", false
+		return videoStamp{}, "", "", false
 	}
-	return videoStamp{Size: size.Int64, Modified: mod.Int64, Read: read.String}, hash.String, true
+	return videoStamp{Size: size.Int64, Modified: mod.Int64, Read: read.String}, hash.String, wish.String, true
 }
 
 // storedBuiltIn turns the recorded built-in rows back into Haves.
@@ -46,6 +52,10 @@ func storedBuiltIn(ctx context.Context, db *sql.DB, fileID int64) ([]Have, error
 	if err != nil {
 		return nil, err
 	}
+	return builtInFromRows(rows), nil
+}
+
+func builtInFromRows(rows []Subtitle) []Have {
 	var out []Have
 	for _, r := range rows {
 		if r.Place != "built_in" || r.State != "present" {
@@ -60,7 +70,7 @@ func storedBuiltIn(ctx context.Context, db *sql.DB, fileID int64) ([]Have, error
 		}
 		out = append(out, h)
 	}
-	return out, nil
+	return out
 }
 
 // videoHash returns the file hash that sites match on. It reuses the stored

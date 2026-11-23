@@ -214,7 +214,7 @@
 							<div class="q-seg" role="radiogroup" aria-label={t('shows.sheet.subtitles')}>
 								<button type="button" role="radio" aria-checked={subsMode === 'default'} class:on={subsMode === 'default'} disabled={busy === 'subs'} onclick={() => setSubs('default')}>{t('shows.sheet.default')}</button>
 								<button type="button" role="radio" aria-checked={subsMode === 'off'} class:on={subsMode === 'off'} disabled={busy === 'subs'} onclick={() => setSubs('off')}>{t('shows.sheet.off')}</button>
-								<div class="q-more" class:on={subsMode === 'custom'}><Menu label={t('shows.sheet.subtitleOptions')} variant="button" width={220} items={subsMenu}>{#snippet trigger()}<i>{subsMode === 'custom' ? codes(subsOwn?.languages ?? []) : t('shows.sheet.custom')}</i><Icon name="chevronDown" size={13} />{/snippet}</Menu></div>
+								<div class="q-more" class:on={subsMode === 'custom'}><Menu label={`${t('shows.sheet.subtitleOptions')}: ${subsMode === 'custom' ? codes(subsOwn?.languages ?? []) : t('shows.sheet.custom')}`} variant="button" width={220} items={subsMenu}>{#snippet trigger()}<i>{subsMode === 'custom' ? codes(subsOwn?.languages ?? []) : t('shows.sheet.custom')}</i><Icon name="chevronDown" size={13} />{/snippet}</Menu></div>
 							</div>
 						</div>
 					{/if}

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/database"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/core/jobs"
@@ -67,14 +69,17 @@ type TranslateRequest struct {
 
 // TranslateResult is what a translation made.
 type TranslateResult struct {
-	Path       string `json:"path,omitempty"`
-	Language   string `json:"language"`
-	From       string `json:"from,omitempty"`
-	Source     string `json:"source,omitempty"`
-	Lines      int    `json:"lines"`
-	Translated int    `json:"translated"`
-	Partial    bool   `json:"partial,omitempty"`
-	Skipped    string `json:"skipped,omitempty"`
+	Path           string  `json:"path,omitempty"`
+	Language       string  `json:"language"`
+	From           string  `json:"from,omitempty"`
+	Source         string  `json:"source,omitempty"`
+	Lines          int     `json:"lines"`
+	Translated     int     `json:"translated"`
+	Partial        bool    `json:"partial,omitempty"`
+	Skipped        string  `json:"skipped,omitempty"`
+	ElapsedSeconds float64 `json:"elapsed_seconds,omitempty"`
+	LinesPerSec    float64 `json:"lines_per_sec,omitempty"`
+	Chars          int     `json:"chars,omitempty"`
 }
 
 // translateFailed is a translation that ran and failed. The Job is not tried
@@ -105,13 +110,14 @@ func (s *Service) handleTranslate(ctx context.Context, r *jobs.Run) error {
 	if r.Job.Subject == nil || r.Job.Subject.Type != "file" {
 		return errors.New("subtitle_translate needs a file subject")
 	}
+	defer s.clearLiveStat(r.Job.ID)
 	var req TranslateRequest
 	b, _ := json.Marshal(r.Job.Params)
 	if err := json.Unmarshal(b, &req); err != nil {
 		return &translateFailed{why: "the translation request cannot be read"}
 	}
 	fileID, by := r.Job.Subject.ID, jobActor(r)
-	res, err := s.Translate(jobProgress(ctx, r), fileID, req, by)
+	res, err := s.Translate(withJobID(jobProgress(ctx, r), r.Job.ID), fileID, req, by)
 	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrNotMain) || errors.Is(err, ErrMusic) {
 		r.SetResult(map[string]any{"skipped": err.Error()})
 		return nil
@@ -125,8 +131,20 @@ func (s *Service) handleTranslate(ctx context.Context, r *jobs.Run) error {
 	}
 	if !req.ByHand {
 		// A failed translation falls back to a plain search, which may still
-		// save a machine-made file, and holds the language back for a day.
-		if _, serr := s.Search(ctx, fileID, SearchOptions{NoTranslate: true}, by); serr != nil {
+		// save a machine-made file or start a transcript, and holds the
+		// language back for a day if not resolved.
+		sres, serr := s.Search(ctx, fileID, SearchOptions{NoTranslate: true}, by)
+		if serr == nil && (errors.Is(err, ErrNoSource) || errors.Is(err, ErrPicture)) {
+			wantLang := NormLanguage(req.Language)
+			for _, o := range sres.Outcomes {
+				if o.Want.Language == wantLang && o.Want.Forced == req.Forced &&
+					(o.Result == "saved" || o.Result == "upgraded" || o.Result == "transcribing") {
+					r.SetResult(map[string]any{"skipped": "source changed; fallback " + o.Result})
+					return nil
+				}
+			}
+		}
+		if serr != nil {
 			err = errors.Join(err, serr)
 		}
 		s.holdTranslation(ctx, fileID, Want{Language: NormLanguage(req.Language), Forced: req.Forced})
@@ -180,6 +198,13 @@ func (s *Service) Translate(ctx context.Context, fileID int64, req TranslateRequ
 	if err != nil {
 		return res, err
 	}
+	if slotsOf(client) <= 1 {
+		rel, err := s.acquireSerialTranslate(ctx)
+		if err != nil {
+			return res, err
+		}
+		defer rel()
+	}
 	st, err := s.look(ctx, fc, by)
 	if err != nil {
 		return res, err
@@ -209,25 +234,57 @@ func (s *Service) Translate(ctx context.Context, fileID int64, req TranslateRequ
 		return res, err
 	}
 	res.From, res.Source = src.language, src.kind
+	tellProgressNote(ctx, 0.01, "preparing")
 	cues, err := s.readSource(ctx, fc, src)
 	if err != nil {
 		return res, err
 	}
-	job := translate.Job{Batch: translate.Batch{From: src.language, To: req.Language, FromName: LanguageName(src.language), ToName: LanguageName(req.Language),
-		Title: fc.title.Name, Kind: fc.item.Kind, MediaID: fc.title.ID}, Chunk: chunkFor(tr)}
+	job := translate.Job{
+		Batch: translate.Batch{From: src.language, To: req.Language, FromName: LanguageName(src.language), ToName: LanguageName(req.Language),
+			Title: fc.title.Name, Kind: fc.item.Kind, MediaID: fc.title.ID},
+		Chunk:    chunkFor(tr),
+		MaxChars: maxCharsFor(tr),
+	}
+	chars := 0
 	for i, c := range cues {
 		job.Lines = append(job.Lines, translate.Line{N: i + 1, Text: c.Text})
+		chars += len(c.Text)
 	}
 	// A translator that takes several calls at once gets the file in that many parts.
-	var settled atomic.Int64
-	job.Progress = func(n int) {
-		tellProgress(ctx, float64(settled.Add(int64(n)))/float64(max(len(job.Lines), 1)))
+	tellProgressNote(ctx, 0.01, "translating")
+	start := time.Now()
+	jobID := jobIDFrom(ctx)
+	slots := max(slotsOf(client), 1)
+	effChunk := job.Chunk
+	if effChunk <= 0 {
+		effChunk = translate.DefaultChunk
 	}
-	out, terr := translate.RunParts(ctx, client, job, slotsOf(client))
+	effChunk = min(effChunk, translate.MaxChunk)
+	totalChunks := max((len(job.Lines)+effChunk-1)/effChunk, 1)
+	waveChunks := min(slots, totalChunks)
+	var settled atomic.Int64
+	var chunksDone atomic.Int64
+	job.Progress = func(n int) {
+		done := settled.Add(int64(n))
+		c := chunksDone.Add(1)
+		tellProgressNote(ctx, float64(done)/float64(max(len(job.Lines), 1)), "translating")
+		if elapsed := time.Since(start).Seconds(); shouldPublishTranslateSpeed(int(c), waveChunks, int(done), len(job.Lines), elapsed) {
+			s.setLiveStat(jobID, KindTranslate, float64(done)/elapsed, "lines/s")
+		}
+	}
+	out, terr := translate.RunParts(ctx, client, job, slots)
+	elapsed := time.Since(start).Seconds()
 	if ctx.Err() != nil {
 		return res, ctx.Err()
 	}
 	res.Lines, res.Translated, res.Partial = out.Total, out.Translated, out.Partial()
+	res.Chars = chars
+	if elapsed > 0 {
+		res.ElapsedSeconds = math.Round(elapsed*100) / 100
+		if out.Translated > 0 {
+			res.LinesPerSec = math.Round((float64(out.Translated)/elapsed)*100) / 100
+		}
+	}
 	if out.Translated == 0 || out.Translated*2 < out.Total {
 		why := "the translator sent back too few lines"
 		if terr != nil {
@@ -260,6 +317,17 @@ func (s *Service) Translate(ctx context.Context, fileID int64, req TranslateRequ
 	res.Path = p
 	s.translateEvent(ctx, fc, req, src, res, "", by)
 	return res, nil
+}
+
+func maxCharsFor(tr Translator) int {
+	if tr.Kind == TranslatorBuiltIn {
+		return 2400
+	}
+	return 0
+}
+
+func shouldPublishTranslateSpeed(chunksDone, waveChunks, done, totalLines int, elapsed float64) bool {
+	return done > 0 && elapsed >= 0.5 && (chunksDone >= waveChunks || done >= totalLines)
 }
 
 // realSubtitle refuses a translation when the File already has a subtitle in
@@ -321,28 +389,32 @@ func (s *Service) translateEvent(ctx context.Context, fc *fileCtx, req Translate
 // the video, then a text track inside it (by hand, or when the owner lets
 // them go without asking), then the best site file in the source language.
 // Without a source language, by hand takes any text subtitle, English first.
+// Automatic jobs whose pinned source disappeared (for example, track
+// renumbering after a transcode) fall back to dynamic resolution.
 func (s *Service) findSource(ctx context.Context, fc *fileCtx, st Status, req TranslateRequest, tr Translator, stops []Subtitle) (source, error) {
-	w := Want{Language: req.Language, Forced: req.Forced, HearingImpaired: HINormal}
-	langOK := func(l string) bool { return l != req.Language && (req.From == "" || LangMatches(req.From, l)) }
 	switch req.Source {
-	case SourceSite:
-		var row SiteRow
-		if err := database.Get(ctx, s.Store.Read(), "subtitle_sites", req.SiteID, &row); err != nil {
-			return source{}, ErrNoSource
-		}
-		return source{kind: SourceSite, language: req.SiteLanguage, hi: req.SiteHI, site: row,
-			cand: sites.Candidate{Site: row.Name, Key: req.SiteKey, Link: req.SiteLink, Format: req.SiteFormat, Language: req.SiteLanguage}}, nil
-	case SourceBeside, SourceBuiltIn, "":
+	case SourceSite, SourceBeside, SourceBuiltIn, "":
 	default:
 		return source{}, fmt.Errorf("source must be %s, %s or %s", SourceBeside, SourceBuiltIn, SourceSite)
 	}
+	w := Want{Language: req.Language, Forced: req.Forced, HearingImpaired: HINormal}
 	haves := sourceOrder(st.Haves, w)
+	if req.Source != "" {
+		src, picture, ok := s.findPinnedSource(ctx, haves, req, tr, stops)
+		if ok {
+			return src, nil
+		}
+		if req.ByHand {
+			if picture {
+				return source{}, ErrPicture
+			}
+			return source{}, ErrNoSource
+		}
+	}
+	langOK := func(l string) bool { return l != req.Language && (req.From == "" || LangMatches(req.From, l)) }
 	picture := false
 	for _, h := range haves {
-		switch {
-		case req.Source == SourceBeside && h.Path != req.Path, req.Source == SourceBuiltIn && (h.Place != "built_in" || h.Track != req.Track):
-			continue
-		case req.Source == "" && (!langOK(h.Language) || !sourceFits(w, h.Forced, h.HearingImpaired)):
+		if !langOK(h.Language) || !sourceFits(w, h.Forced, h.HearingImpaired) {
 			continue
 		}
 		switch h.Place {
@@ -362,10 +434,7 @@ func (s *Service) findSource(ctx context.Context, fc *fileCtx, st Status, req Tr
 			}
 		}
 	}
-	if picture && req.Source != "" {
-		return source{}, ErrPicture
-	}
-	if req.Source == "" && req.From != "" {
+	if req.From != "" {
 		if src, ok := s.siteSource(ctx, fc, req, w); ok {
 			return src, nil
 		}
@@ -374,6 +443,42 @@ func (s *Service) findSource(ctx context.Context, fc *fileCtx, st Status, req Tr
 		return source{}, ErrPicture
 	}
 	return source{}, ErrNoSource
+}
+
+func (s *Service) findPinnedSource(ctx context.Context, haves []Have, req TranslateRequest, tr Translator, stops []Subtitle) (src source, picture, ok bool) {
+	if req.Source == SourceSite {
+		var row SiteRow
+		if err := database.Get(ctx, s.Store.Read(), "subtitle_sites", req.SiteID, &row); err != nil {
+			return source{}, false, false
+		}
+		return source{kind: SourceSite, language: req.SiteLanguage, hi: req.SiteHI, site: row,
+			cand: sites.Candidate{Site: row.Name, Key: req.SiteKey, Link: req.SiteLink, Format: req.SiteFormat, Language: req.SiteLanguage}}, false, true
+	}
+	for _, h := range haves {
+		switch {
+		case req.Source == SourceBeside && h.Path != req.Path:
+			continue
+		case req.Source == SourceBuiltIn && (h.Place != "built_in" || h.Track != req.Track):
+			continue
+		}
+		switch h.Place {
+		case "beside":
+			// A machine-made file is never a source, except a transcript: it
+			// holds what was said, which is what a translation needs.
+			if row := stopgapAt(stops, h.Path); textFormat(h.Path) != "" && (row == nil || row.Transcribed) {
+				return source{kind: SourceBeside, language: h.Language, hi: h.HearingImpaired, path: h.Path}, false, true
+			}
+		case "built_in":
+			if h.Picture || !container.TextCodec(h.Codec) {
+				picture = true
+				continue
+			}
+			if req.ByHand || tr.BuiltInAuto {
+				return source{kind: SourceBuiltIn, language: h.Language, hi: h.HearingImpaired, track: h.Track}, false, true
+			}
+		}
+	}
+	return source{}, picture, false
 }
 
 // siteSource asks the usable sites once for the source language and keeps

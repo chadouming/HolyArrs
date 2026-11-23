@@ -104,5 +104,6 @@
 	"frame.feeds.cleared": "Убрано из загрузчика",
 	"frame.feeds.clearStill": "Пока не убрано",
 	"frame.error.pageGone": "Такой страницы нет. Возможно, ссылка устарела или набрана с ошибкой.",
-	"frame.nav.subtitles": "Субтитры"
+	"frame.nav.subtitles": "Субтитры",
+	"frame.nav.transcode": "Транскодирование"
 }

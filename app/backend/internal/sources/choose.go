@@ -289,6 +289,10 @@ func (s *Searcher) TurnDownFor(ctx context.Context, releaseID, slotID int64, rea
 			if err := setTurnedDownSlotsTx(tx, rel.ID, append(TurnedDownSlots(rel), slotID)); err != nil {
 				return err
 			}
+		} else {
+			if err := setTurnedDownSlotsTx(tx, rel.ID, nil); err != nil {
+				return err
+			}
 		}
 		return unholdTx(tx, rel.ID, "Held Release turned down", by)
 	})
@@ -525,8 +529,8 @@ func (s *Searcher) packSlots(ctx context.Context, rel domain.Release) (out []int
 
 // listingHash returns the lower-case hex info hash of a listing, from the field or the magnet link, or "".
 func listingHash(hash, link string) string {
-	if hash != "" {
-		return hash
+	if h := strings.ToLower(strings.TrimSpace(hash)); h != "" {
+		return h
 	}
 	m := magnetBtih.FindStringSubmatch(link)
 	if m == nil {

@@ -169,7 +169,7 @@ func (s *Service) Choose(ctx context.Context, fileID int64, siteName, key string
 						break
 					}
 				}
-				p, err := s.fetchAndSave(ctx, fc, t, c, r, set, by)
+				p, err := s.fetchAndSave(ctx, fc, t, c, r, set, by, false)
 				if err != nil {
 					return "", err
 				}
@@ -179,6 +179,7 @@ func (s *Service) Choose(ctx context.Context, fileID int64, siteName, key string
 				})
 				out := Outcome{Want: o.Want, Result: "saved", Path: p, Score: c.Score.Total, Site: c.Site}
 				s.afterTarget(ctx, fc, t, &out, set, by)
+				s.queueLocalTranslationsForFile(ctx, fileID)
 				return p, nil
 			}
 		}

@@ -428,3 +428,22 @@ func TestTimeMapResetsOnRetry(t *testing.T) {
 		t.Fatalf("timeMap did not reset cleanly: %+v", m)
 	}
 }
+
+func TestChunkCountSizing(t *testing.T) {
+	cases := []struct {
+		seconds float64
+		slots   int
+		want    int
+	}{
+		{seconds: 200, slots: 2, want: 2},
+		{seconds: 600, slots: 2, want: 4},
+		{seconds: 1440, slots: 2, want: 8},
+		{seconds: 7200, slots: 2, want: 24},
+		{seconds: 7200, slots: 6, want: 24},
+	}
+	for _, tc := range cases {
+		if got := chunkCount(tc.seconds, tc.slots); got != tc.want {
+			t.Fatalf("chunkCount(%.0f, %d) = %d, want %d", tc.seconds, tc.slots, got, tc.want)
+		}
+	}
+}

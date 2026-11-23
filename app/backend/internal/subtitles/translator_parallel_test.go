@@ -2,7 +2,10 @@ package subtitles
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	domain "github.com/HolyArrs/holyarrs/app/backend/internal/core/model"
 	"github.com/HolyArrs/holyarrs/app/backend/internal/subtitles/translate"
@@ -32,23 +35,24 @@ func TestAllCardsUsesEveryDevice(t *testing.T) {
 		t.Fatalf("%+v %v", tr, err)
 	}
 	c := builtInClient(t, s)
+	wantParallel := builtin.GPUParallelFor(usableVRAMMB(12216), 0)
 	if len(c.Targets) != 2 || c.Targets[0].Opts.GPU != "Vulkan0" || c.Targets[1].Opts.GPU != "Vulkan1" || c.Targets[0].Runner == c.Targets[1].Runner {
 		t.Fatalf("targets %+v", c.Targets)
 	}
 	for _, tg := range c.Targets {
-		if tg.Opts.Parallel != builtin.GPUParallel || tg.Opts.Context != builtin.GPUContext {
-			t.Fatalf("card options %+v", tg.Opts)
+		if tg.Opts.Parallel != wantParallel || tg.Opts.Context != builtin.GPUContext {
+			t.Fatalf("card options %+v (want Parallel=%d)", tg.Opts, wantParallel)
 		}
 	}
-	if c.Slots() != 2*builtin.GPUParallel || slotsOf(c) != c.Slots() {
-		t.Fatalf("%d slots", c.Slots())
+	if c.Slots() != 2*wantParallel || slotsOf(c) != c.Slots() {
+		t.Fatalf("%d slots (want %d)", c.Slots(), 2*wantParallel)
 	}
 	// One named card: one runner, still several calls at once.
 	in.GPU = "Vulkan1"
 	if _, err := s.SaveTranslator(ctx, in, domain.System); err != nil {
 		t.Fatal(err)
 	}
-	if c := builtInClient(t, s); len(c.Targets) != 1 || c.Targets[0].Opts.GPU != "Vulkan1" || c.Slots() != builtin.GPUParallel {
+	if c := builtInClient(t, s); len(c.Targets) != 1 || c.Targets[0].Opts.GPU != "Vulkan1" || c.Slots() != wantParallel {
 		t.Fatalf("one card: %+v", c.Targets)
 	}
 	// The CPU takes one call at a time.
@@ -108,5 +112,93 @@ func TestNoThinkFormReachesTheRunner(t *testing.T) {
 	c := builtInClient(t, s)
 	if c.Form != builtin.FormNoThink || !c.Targets[0].Opts.NoThink {
 		t.Fatalf("client form %q, options %+v", c.Form, c.Targets[0].Opts)
+	}
+}
+
+func TestShouldPublishTranslateSpeed(t *testing.T) {
+	cases := []struct {
+		name       string
+		chunksDone int
+		waveChunks int
+		done       int
+		totalLines int
+		elapsed    float64
+		want       bool
+	}{
+		{"single_slot_too_early", 1, 1, 20, 400, 0.4, false},
+		{"single_slot_ready", 1, 1, 20, 400, 0.6, true},
+		{"8_slot_wave1_first_chunk", 1, 8, 20, 400, 4.5, false},
+		{"8_slot_wave1_seventh_chunk", 7, 8, 140, 400, 4.8, false},
+		{"8_slot_wave1_complete", 8, 8, 160, 400, 5.0, true},
+		{"short_file_completes_before_wave", 3, 8, 60, 60, 1.2, true},
+		{"zero_done_suppressed", 1, 1, 0, 400, 1.0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldPublishTranslateSpeed(tc.chunksDone, tc.waveChunks, tc.done, tc.totalLines, tc.elapsed)
+			if got != tc.want {
+				t.Fatalf("shouldPublishTranslateSpeed(%d, %d, %d, %d, %.1f) = %v, want %v",
+					tc.chunksDone, tc.waveChunks, tc.done, tc.totalLines, tc.elapsed, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTranslatePoolWorkers(t *testing.T) {
+	f := newFix(t)
+	s, _ := withTranslator(t, f, &faketranslator.OpenAI{})
+	withBuiltIn(t, s)
+	ctx := context.Background()
+
+	if got := TranslatePoolWorkers(ctx, f.st); got != 4 {
+		t.Fatalf("TranslatePoolWorkers(with 2 GPUs) = %d, want 4", got)
+	}
+	t.Setenv("FAKE_NO_DEVICES", "1")
+	if got := TranslatePoolWorkers(ctx, f.st); got != 1 {
+		t.Fatalf("TranslatePoolWorkers(no devices) = %d, want 1", got)
+	}
+}
+
+func TestAcquireSerialTranslate(t *testing.T) {
+	s := &Service{}
+	var active, peak atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rel, err := s.acquireSerialTranslate(context.Background())
+			if err != nil {
+				t.Errorf("acquireSerialTranslate: %v", err)
+				return
+			}
+			cur := active.Add(1)
+			for {
+				m := peak.Load()
+				if cur <= m || peak.CompareAndSwap(m, cur) {
+					break
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+			active.Add(-1)
+			rel()
+			rel()
+		}()
+	}
+	wg.Wait()
+	if peak.Load() != 1 {
+		t.Fatalf("peak concurrent serial translations = %d, want 1", peak.Load())
+	}
+
+	// Respects context cancellation while slot is held.
+	rel, err := s.acquireSerialTranslate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rel()
+	cctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := s.acquireSerialTranslate(cctx); err == nil {
+		t.Fatal("expected context deadline error when serial slot is held")
 	}
 }

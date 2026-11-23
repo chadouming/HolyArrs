@@ -6,7 +6,7 @@
 	import { plainMessage as message } from '#lib/core/settings.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Field from '#lib/ui/Field.svelte';
-	import { activeSpeechModel, modelAction, sizeWords, type ModelList, type ModelView, type TranslatorForm } from './api.ts';
+	import { activeSpeechModel, modelAction, modelBadges, sizeWords, type ModelList, type ModelView, type TranslatorForm } from './api.ts';
 
 	// kinds: which models the list shows. '' are translation models (the built-in translator's own); 'speech' and 'vad' are the transcriber's.
 	let { tr = $bindable(), models = $bindable([]), speech = false, speechModel = $bindable('') }: { tr?: TranslatorForm; models?: ModelView[]; speech?: boolean; speechModel?: string } = $props();
@@ -70,8 +70,13 @@
 		{@const speechInUse = speech && m.kind === 'speech' && activeSpeech === m.id}
 		<div class="model" class:chosen={speech ? speechInUse : tr?.builtin_model === m.id} data-testid="builtin-model">
 			<div class="what">
-				<b>{m.name}</b>
-				<span class="small muted">{m.own ? t('settings.subtitles.trModelOwn') : m.license} · {t('settings.subtitles.trModelNeeds', { size: sizeWords(m.size), need: sizeWords(m.need) })}</span>
+				<div class="title-row">
+					<b>{m.name}</b>
+					{#each modelBadges(m) as badge}
+						<span class="badge" data-testid="model-badge">{badge}</span>
+					{/each}
+				</div>
+				<span class="small muted">{m.own ? t('settings.subtitles.trModelOwn') : m.license} · {t('settings.subtitles.trModelNeeds', { size: sizeWords(m.size), need: sizeWords(m.need) })}{#if !m.own && m.source} · <span class="mono">{m.source}</span>{/if}</span>
 				{#if !m.fits}<span class="small warn-text">{t('settings.subtitles.trModelTooBig')}</span>{/if}
 				{#if m.state === 'downloading'}<progress max="1" value={m.progress} aria-label={m.name}></progress>{/if}
 			</div>
@@ -103,7 +108,7 @@
 	{#if error}<p class="form-error" role="alert">{error}</p>{/if}
 </div>
 {#if tr}
-<div class="two" style="margin-top: var(--s-4)">
+<div class="two">
 	<Field id="tr-gpu" label={t('settings.subtitles.trGPU')} hint={t('settings.subtitles.trGPUHint')}>
 		<select id="tr-gpu" class="input" bind:value={tr.gpu} data-testid="builtin-gpu">
 			<option value="">{t('settings.subtitles.trGPUNone')}</option>
@@ -132,24 +137,102 @@
 		justify-content: space-between;
 		gap: var(--s-3);
 		padding: var(--s-3);
-		border: 1px solid var(--border);
-		border-radius: var(--r-2);
+		background: var(--surface-2);
+		border: 1px solid var(--line);
+		border-radius: var(--r-btn);
+		min-width: 0;
 	}
 	.model.chosen {
-		border-color: var(--accent);
+		background: var(--surface-1);
+		border-color: var(--line-strong);
+		box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
 	}
 	.what {
 		display: grid;
 		gap: 2px;
 		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.title-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+	}
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 1px 7px;
+		border-radius: var(--r-pill);
+		background: var(--surface-1);
+		border: 1px solid var(--line);
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+		font-family: var(--font-mono);
+		font-weight: var(--weight-medium);
+		line-height: 1.35;
+	}
+	.warn-text {
+		color: var(--wait-text);
 	}
 	.row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--s-2);
 		flex-shrink: 0;
 	}
+	:global(.settings-content) .chip.ok {
+		color: var(--ok-text);
+	}
+	.two,
+	:global(.settings-content :is(.ui-settings, .card)) .two:has(> :global(.field)) {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		align-items: start;
+		gap: 14px 16px;
+		margin-top: var(--s-4);
+	}
+	.two :global(.field),
+	.two :global(.field + .field) {
+		display: flex !important;
+		flex-direction: column;
+		align-items: stretch !important;
+		gap: 6px;
+		min-width: 0;
+		margin-top: 0 !important;
+		padding: 0 !important;
+		border-top: 0 !important;
+	}
+	.two :global(.field > label:first-child) {
+		padding-top: 0 !important;
+	}
+	.two :global(.input) {
+		width: 100%;
+		max-width: none;
+		height: 40px;
+		min-height: 40px;
+	}
 	progress {
 		width: 100%;
+	}
+	@media (max-width: 639px) {
+		.two,
+		:global(.settings-content :is(.ui-settings, .card)) .two:has(> :global(.field)) {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.model {
+			flex-direction: column;
+			align-items: stretch;
+		}
+		.row {
+			justify-content: flex-end;
+		}
+	}
+	@media (pointer: coarse) {
+		.two :global(.input) {
+			height: 44px;
+			min-height: 44px;
+		}
 	}
 </style>

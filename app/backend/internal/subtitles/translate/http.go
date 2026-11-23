@@ -131,12 +131,39 @@ func send(ctx context.Context, hc *http.Client, method, addr string, hdr map[str
 	case code >= 500:
 		return nil, &Error{Kind: KindBusy, Msg: fmt.Sprintf("the translator failed (%d)", code)}
 	default:
+		why := reason(out, secret)
+		if isContextTooBig(why) {
+			return nil, &Error{Kind: KindCut, Msg: why}
+		}
 		msg := fmt.Sprintf("the translator refused the call (%d)", code)
-		if why := reason(out, secret); why != "" {
+		if why != "" {
 			msg += ": " + why
 		}
 		return nil, &Error{Kind: KindRefused, Msg: msg}
 	}
+}
+
+// isContextTooBig reports whether a 4xx error message indicates the request
+// exceeded the model's context window.
+func isContextTooBig(why string) bool {
+	if why == "" {
+		return false
+	}
+	low := strings.ToLower(why)
+	for _, needle := range []string{
+		"exceeds the available context size",
+		"context_length_exceeded",
+		"maximum context length",
+		"prompt is too long",
+		"input is too long",
+		"too many tokens",
+	} {
+		if strings.Contains(low, needle) {
+			return true
+		}
+	}
+	return strings.Contains(low, "context") &&
+		(strings.Contains(low, "exceed") || strings.Contains(low, "too large") || strings.Contains(low, "too long"))
 }
 
 // reason reads a short error message from an answer, such as an unknown
