@@ -1693,6 +1693,154 @@ class CutoffAndSileroVadTests(unittest.TestCase):
         self.assertEqual(compiled_fb.reqs[0].zero_arg_calls, 0)
         self.assertEqual(compiled_fb.reqs[0].feed_calls, 2)
 
+    @unittest.skipIf(srv.np is None, "numpy not installed")
+    def test_select_detect_audio_filters_short_blips_concatenates_and_truncates(self) -> None:
+        np = srv.np
+        sr = srv.SAMPLE_RATE
+        full_audio = np.linspace(-0.5, 0.5, num=35 * sr, dtype=np.float32)
+
+        # Empty spans falls back to raw audio truncated at MAX_DETECT_SECONDS.
+        empty_sel = srv.select_detect_audio(full_audio, [])
+        self.assertEqual(len(empty_sel), int(srv.MAX_DETECT_SECONDS * sr))
+        self.assertTrue(np.array_equal(empty_sel, full_audio[: int(srv.MAX_DETECT_SECONDS * sr)]))
+
+        # Tiny <0.5s blip is skipped when longer speech spans exist.
+        blip = np.full(int(0.3 * sr), 0.11, dtype=np.float32)
+        span_a = np.full(int(1.2 * sr), 0.22, dtype=np.float32)
+        span_b = np.full(int(0.8 * sr), 0.33, dtype=np.float32)
+        selected = srv.select_detect_audio(
+            full_audio,
+            [(0.0, 0.3, blip), (2.0, 3.2, span_a), (6.0, 6.8, span_b)],
+        )
+        self.assertEqual(selected.dtype, np.float32)
+        self.assertTrue(selected.flags["C_CONTIGUOUS"])
+        self.assertEqual(len(selected), len(span_a) + len(span_b))
+        self.assertTrue(np.allclose(selected[: len(span_a)], 0.22))
+        self.assertTrue(np.allclose(selected[len(span_a) :], 0.33))
+
+        # When every span is shorter than min_span_sec, all spans are kept.
+        blip_a = np.full(int(0.2 * sr), 0.44, dtype=np.float32)
+        blip_b = np.full(int(0.3 * sr), 0.55, dtype=np.float32)
+        short_only = srv.select_detect_audio(
+            full_audio,
+            [(0.0, 0.2, blip_a), (1.0, 1.3, blip_b)],
+        )
+        self.assertEqual(short_only.dtype, np.float32)
+        self.assertTrue(short_only.flags["C_CONTIGUOUS"])
+        self.assertEqual(len(short_only), len(blip_a) + len(blip_b))
+        self.assertTrue(np.allclose(short_only[: len(blip_a)], 0.44))
+        self.assertTrue(np.allclose(short_only[len(blip_a) :], 0.55))
+
+        # Combined spans longer than MAX_DETECT_SECONDS are truncated to MAX_DETECT_SECONDS * SAMPLE_RATE.
+        long_a = np.full(20 * sr, 0.66, dtype=np.float32)
+        long_b = np.full(18 * sr, 0.77, dtype=np.float32)
+        truncated = srv.select_detect_audio(
+            full_audio,
+            [(0.0, 20.0, long_a), (25.0, 43.0, long_b)],
+        )
+        expected_max = int(srv.MAX_DETECT_SECONDS * sr)
+        self.assertEqual(len(truncated), expected_max)
+        self.assertEqual(truncated.dtype, np.float32)
+        self.assertTrue(truncated.flags["C_CONTIGUOUS"])
+        self.assertTrue(np.allclose(truncated[: len(long_a)], 0.66))
+        self.assertTrue(np.allclose(truncated[len(long_a) :], 0.77))
+
+    @unittest.skipIf(srv.np is None, "numpy not installed")
+    def test_detect_only_concatenates_speech_spans_and_skips_short_blip(self) -> None:
+        np = srv.np
+        sr = srv.SAMPLE_RATE
+        frame_len = int(round(sr * srv.VAD_FRAME_MS / 1000.0))
+
+        # RMS VAD (frame=30ms, min_speech=7 frames, pad=8 frames):
+        # 7-frame blip at t=0 pads to 15 frames (0.45s < 0.5s) and is skipped;
+        # two 2.01s speech spans separated by 4.02s silence remain unmerged and are concatenated.
+        blip_samples = sine_samples(7 * frame_len / sr, freq=220.0, amplitude=3000)
+        gap_samples = [0] * (134 * frame_len)
+        speech1_samples = sine_samples(67 * frame_len / sr, freq=440.0, amplitude=12000)
+        speech2_samples = sine_samples(67 * frame_len / sr, freq=660.0, amplitude=20000)
+        tail_silence = [0] * (10 * frame_len)
+        wav = make_pcm16_wav(
+            blip_samples
+            + gap_samples
+            + speech1_samples
+            + gap_samples
+            + speech2_samples
+            + tail_silence
+        )
+
+        class CapturingDetectPipeline:
+            def __init__(self) -> None:
+                self.captured_audio: Any = None
+                self.kwargs: dict[str, object] = {}
+
+            def generate(self, audio_chunk: object, **kwargs: object) -> FakeResult:
+                self.captured_audio = np.array(audio_chunk, copy=True)
+                self.kwargs = dict(kwargs)
+                return FakeResult(language="<|en|>", texts=["<|en|>"])
+
+        pipe = CapturingDetectPipeline()
+        service = srv.WhisperService(pipeline=pipe, vad_model=None)
+        out = service.infer(wav, {"detect_language": "true"})
+
+        self.assertEqual(out, {"text": "", "language": "en"})
+        self.assertEqual(pipe.kwargs.get("max_new_tokens"), 1)
+        self.assertIs(pipe.kwargs.get("return_timestamps"), False)
+
+        # Each 67-frame speech span gets 8 pad frames on each side = 83 frames.
+        expected_span_samples = 83 * frame_len
+        self.assertEqual(len(pipe.captured_audio), 2 * expected_span_samples)
+        # First span has peak ~12000/32768 (~0.366), second has ~20000/32768 (~0.610); blip (~0.092) was skipped.
+        first_peak = float(np.max(np.abs(pipe.captured_audio[:expected_span_samples])))
+        second_peak = float(np.max(np.abs(pipe.captured_audio[expected_span_samples:])))
+        self.assertAlmostEqual(first_peak, 12000 / 32768.0, places=2)
+        self.assertAlmostEqual(second_peak, 20000 / 32768.0, places=2)
+
+    @unittest.skipIf(srv.np is None, "numpy not installed")
+    def test_detect_only_keeps_short_spans_when_all_short_and_truncates_at_max(self) -> None:
+        np = srv.np
+        sr = srv.SAMPLE_RATE
+        frame_len = int(round(sr * srv.VAD_FRAME_MS / 1000.0))
+        win = srv.SILERO_WINDOW_SAMPLES
+
+        class CapturingDetectPipeline:
+            def __init__(self) -> None:
+                self.captured_audio: Any = None
+
+            def generate(self, audio_chunk: object, **kwargs: object) -> FakeResult:
+                self.captured_audio = np.array(audio_chunk, copy=True)
+                return FakeResult(language="<|ja|>", texts=["<|ja|>"])
+
+        # Case 1: all spans < 0.5s (15 frames = 0.45s each) -> keep both short spans without the silence gap.
+        short_wav = make_pcm16_wav(
+            sine_samples(7 * frame_len / sr, amplitude=10000)
+            + ([0] * (134 * frame_len))
+            + sine_samples(7 * frame_len / sr, amplitude=10000)
+        )
+        pipe_short = CapturingDetectPipeline()
+        out_short = srv.WhisperService(pipeline=pipe_short, vad_model=None).infer(
+            short_wav, {"detect_language": "true"}
+        )
+        self.assertEqual(out_short, {"text": "", "language": "ja"})
+        self.assertEqual(len(pipe_short.captured_audio), 2 * 15 * frame_len)
+
+        # Case 2: combined Silero spans > MAX_DETECT_SECONDS -> truncated at MAX_DETECT_SECONDS * SAMPLE_RATE.
+        speech_20s = sine_samples(20.0, amplitude=12000)
+        gap_4s = [0] * (4 * sr)
+        long_wav = make_pcm16_wav(speech_20s + gap_4s + speech_20s)
+        w20 = int(20.0 * sr // win)
+        w4 = int(4.0 * sr // win)
+
+        class LongTwoSpanSilero:
+            def probabilities(self, audio: object) -> list[float]:
+                return [0.95] * w20 + [0.05] * w4 + [0.95] * w20
+
+        pipe_long = CapturingDetectPipeline()
+        out_long = srv.WhisperService(
+            pipeline=pipe_long, vad_model=LongTwoSpanSilero()
+        ).infer(long_wav, {"detect_language": "true"})
+        self.assertEqual(out_long, {"text": "", "language": "ja"})
+        self.assertEqual(len(pipe_long.captured_audio), int(srv.MAX_DETECT_SECONDS * sr))
+
 
 if __name__ == "__main__":
     unittest.main()

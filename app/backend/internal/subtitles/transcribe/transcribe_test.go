@@ -166,6 +166,44 @@ func TestLanguageNeedsTwoSamplesOrTheTag(t *testing.T) {
 	}
 }
 
+func TestLanguageTieBreakWithHint(t *testing.T) {
+	cases := []struct {
+		name    string
+		langs   string
+		hint    string
+		want    string
+		checks  string
+		unclear bool
+	}{
+		{name: "bilingual noisy track keeps valid hint", langs: "zh,zh,en,en,en", hint: "en", want: "en", checks: "5"},
+		{name: "three foreign and two hint keeps hint", langs: "es,es,en,es,en", hint: "en", want: "en", checks: "5"},
+		{name: "four of five matching other overrides wrong tag", langs: "en,en,fr,en,en", hint: "fr", want: "en", checks: "5"},
+		{name: "two stray non-hint and zero hint is unclear", langs: "zh,zh,ja,ko,ru", hint: "en", checks: "5", unclear: true},
+		{name: "matching hint fast path exits after two checks", langs: "en,en,fr", hint: "en", want: "en", checks: "2"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			o := setup(t, c.langs, "eng")
+			res, err := Run(context.Background(), "video.mkv", Track{Seconds: 1200}, c.hint, o)
+			if c.unclear {
+				if !errors.Is(err, ErrLanguage) || !Final(err) {
+					t.Fatalf("%s hint %q: %v", c.langs, c.hint, err)
+				}
+				empty(t, o.TempDir)
+			} else if err != nil || res.Language != c.want {
+				t.Fatalf("%s hint %q: %q %v", c.langs, c.hint, res.Language, err)
+			}
+			b, err := os.ReadFile(filepath.Join(os.Getenv("FAKE_STATE"), "checks"))
+			if err != nil {
+				t.Fatalf("read checks: %v", err)
+			}
+			if got := strings.TrimSpace(string(b)); got != c.checks {
+				t.Fatalf("%s hint %q: checks=%s, want %s", c.langs, c.hint, got, c.checks)
+			}
+		})
+	}
+}
+
 func TestWrongTagNeverLabelsTheTranscript(t *testing.T) {
 	o := setup(t, "en,en,en", "fra")
 	args := filepath.Join(t.TempDir(), "args")

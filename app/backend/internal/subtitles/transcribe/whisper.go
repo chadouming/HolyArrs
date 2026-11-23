@@ -33,7 +33,11 @@ const (
 
 // samplePoints are where in the file the language samples are taken. The
 // first half minute is often music or silence, so none is taken there.
-var samplePoints = []float64{0.2, 0.5, 0.8}
+// extraSamplePoints break ties only when hint is contradicted by the first pass.
+var (
+	samplePoints      = []float64{0.2, 0.5, 0.8}
+	extraSamplePoints = []float64{0.35, 0.65}
+)
 
 // limitFor is how long transcribing a file of the given length may take.
 var limitFor = func(seconds float64) time.Duration {
@@ -262,59 +266,112 @@ func (o Options) device() []string {
 
 var detected = regexp.MustCompile(`auto-detected language:\s*([a-z]{2,3})\b`)
 
-// spoken tells the language of the sound file from three samples: the one at
-// least two agree on, or one that agrees with hint, the track's own tag.
+// detectSample extracts one SampleSeconds clip centered at fraction at of the
+// audio and runs language detection on it, returning "" when no code matched.
+func detectSample(ctx context.Context, o Options, dir, wav string, info wavInfo, wavOK bool, seconds, at float64, idx int) (string, error) {
+	sample := filepath.Join(dir, fmt.Sprintf("sample%d.wav", idx))
+	start := max(seconds*at-SampleSeconds/2, 0)
+	if wavOK {
+		startByte := int64(start * float64(wavBytesPerSec))
+		endByte := startByte + int64(SampleSeconds)*wavBytesPerSec
+		if err := sliceWAV(wav, info, startByte, endByte, sample); err != nil {
+			return "", err
+		}
+	} else {
+		if _, _, err := run(ctx, o.Log, o.Programs.FFmpeg, "-nostdin", "-loglevel", "error", "-y",
+			"-ss", strconv.FormatFloat(start, 'f', 1, 64), "-t", strconv.Itoa(SampleSeconds), "-i", wav, sample); err != nil {
+			return "", err
+		}
+	}
+	var said string
+	if o.useServer() {
+		var lines []string
+		if _, err := o.Server.post(ctx, o, sample, map[string]string{"detect_language": "true", "response_format": "json", "no_timestamps": "true", "vad": "true"},
+			func(l string) { lines = append(lines, l) }, o.Log); err != nil {
+			return "", err
+		}
+		said = strings.Join(lines, "\n")
+	} else {
+		args := append([]string{"-m", o.Model, "-f", sample, "-dl", "-t", strconv.Itoa(max(o.Threads, 1))}, o.device()...)
+		out, errOut, err := runWatch(ctx, o.Log, nil, o.env(), o.Programs.Whisper, args...)
+		if err != nil {
+			return "", err
+		}
+		said = out + "\n" + errOut
+	}
+	if m := detected.FindStringSubmatch(said); m != nil {
+		return m[1], nil
+	}
+	return "", nil
+}
+
+// spoken tells the language of the sound file from three samples, expanding to
+// five when hint is set and contradicted so brief foreign scenes do not override
+// a valid track tag.
 func spoken(ctx context.Context, o Options, dir, wav string, seconds float64, hint string) (string, error) {
 	info, wavOK := parseWAV(wav)
 	count := map[string]int{}
 	var order []string
+	record := func(lang string) {
+		if lang == "" {
+			return
+		}
+		if count[lang] == 0 {
+			order = append(order, lang)
+		}
+		count[lang]++
+	}
 	for i, at := range samplePoints {
-		sample := filepath.Join(dir, fmt.Sprintf("sample%d.wav", i))
-		start := max(seconds*at-SampleSeconds/2, 0)
-		if wavOK {
-			startByte := int64(start * float64(wavBytesPerSec))
-			endByte := startByte + int64(SampleSeconds)*wavBytesPerSec
-			if err := sliceWAV(wav, info, startByte, endByte, sample); err != nil {
-				return "", err
-			}
-		} else {
-			if _, _, err := run(ctx, o.Log, o.Programs.FFmpeg, "-nostdin", "-loglevel", "error", "-y",
-				"-ss", strconv.FormatFloat(start, 'f', 1, 64), "-t", strconv.Itoa(SampleSeconds), "-i", wav, sample); err != nil {
-				return "", err
-			}
+		lang, err := detectSample(ctx, o, dir, wav, info, wavOK, seconds, at, i)
+		if err != nil {
+			return "", err
 		}
-		var said string
-		if o.useServer() {
-			var lines []string
-			if _, err := o.Server.post(ctx, o, sample, map[string]string{"detect_language": "true", "response_format": "json", "no_timestamps": "true", "vad": "true"},
-				func(l string) { lines = append(lines, l) }, o.Log); err != nil {
-				return "", err
-			}
-			said = strings.Join(lines, "\n")
-		} else {
-			args := append([]string{"-m", o.Model, "-f", sample, "-dl", "-t", strconv.Itoa(max(o.Threads, 1))}, o.device()...)
-			out, errOut, err := runWatch(ctx, o.Log, nil, o.env(), o.Programs.Whisper, args...)
-			if err != nil {
-				return "", err
-			}
-			said = out + "\n" + errOut
-		}
-		if m := detected.FindStringSubmatch(said); m != nil {
-			if count[m[1]] == 0 {
-				order = append(order, m[1])
-			}
-			count[m[1]]++
-			if count[m[1]] >= 2 {
-				return m[1], nil
-			}
+		record(lang)
+		if lang != "" && count[lang] >= 2 && (hint == "" || lang == hint) {
+			return lang, nil
 		}
 	}
+	if hint == "" {
+		for _, l := range order {
+			if count[l] >= 2 {
+				return l, nil
+			}
+		}
+		return "", fmt.Errorf("%w: the samples said %s", ErrLanguage, strings.Join(order, ", "))
+	}
+	hasNonHintCandidate := false
 	for _, l := range order {
-		if count[l] >= 2 {
-			return l, nil
+		if l != hint && count[l] >= 2 {
+			hasNonHintCandidate = true
+			break
 		}
 	}
-	if hint != "" && count[hint] > 0 {
+	if !hasNonHintCandidate {
+		if count[hint] > 0 {
+			return hint, nil
+		}
+		return "", fmt.Errorf("%w: the samples said %s", ErrLanguage, strings.Join(order, ", "))
+	}
+	for i, at := range extraSamplePoints {
+		lang, err := detectSample(ctx, o, dir, wav, info, wavOK, seconds, at, len(samplePoints)+i)
+		if err != nil {
+			return "", err
+		}
+		record(lang)
+	}
+	best := ""
+	for _, l := range order {
+		if best == "" || count[l] > count[best] || (count[l] == count[best] && l == hint) {
+			best = l
+		}
+	}
+	if count[hint] >= 2 && count[best] < 4 {
+		return hint, nil
+	}
+	if best != hint && count[best] >= 3 && count[best] > count[hint] {
+		return best, nil
+	}
+	if count[hint] >= 2 {
 		return hint, nil
 	}
 	return "", fmt.Errorf("%w: the samples said %s", ErrLanguage, strings.Join(order, ", "))

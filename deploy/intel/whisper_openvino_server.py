@@ -1126,6 +1126,7 @@ _OPTIONAL_GENERATE_KWARGS = (
     "num_beams",
 )
 _MIN_PROMPT_SPAN_SEC = 1.5
+_MIN_DETECT_SPAN_SEC = 0.5
 
 
 def is_repetition_hallucination(text: str) -> bool:
@@ -1278,6 +1279,34 @@ def _generate_with_compat(pipeline: Any, audio_chunk: Any, **kwargs: Any) -> Any
                 raise
 
 
+def select_detect_audio(
+    audio: Any,
+    spans: Sequence[tuple[float, float, Any]],
+    max_seconds: float = MAX_DETECT_SECONDS,
+    sample_rate: int = SAMPLE_RATE,
+    min_span_sec: float = _MIN_DETECT_SPAN_SEC,
+) -> Any:
+    """Select speech spans for language detection, skipping brief blips when longer speech exists."""
+    max_samples = max(0, int(max_seconds * sample_rate))
+    if not spans:
+        return audio[:max_samples]
+
+    chosen = [chunk for start, end, chunk in spans if (end - start) >= min_span_sec]
+    if not chosen:
+        chosen = [chunk for _, _, chunk in spans]
+
+    if np is not None:
+        combined = chosen[0] if len(chosen) == 1 else np.concatenate(chosen)
+        return np.ascontiguousarray(combined[:max_samples], dtype=np.float32)
+
+    combined_list: list[float] = []
+    for chunk in chosen:
+        combined_list.extend(chunk)
+        if len(combined_list) >= max_samples:
+            break
+    return combined_list[:max_samples]
+
+
 class WhisperService:
     """Thread-safe inference wrapper around an OpenVINO Whisper pipeline."""
 
@@ -1354,10 +1383,7 @@ class WhisperService:
         with self._lock:
             if detect_only:
                 spans = self._segment_audio(audio, vad_enabled=True, threshold=threshold)
-                if spans:
-                    sample_audio = spans[0][2][: int(MAX_DETECT_SECONDS * SAMPLE_RATE)]
-                else:
-                    sample_audio = audio[: int(MAX_DETECT_SECONDS * SAMPLE_RATE)]
+                sample_audio = select_detect_audio(audio, spans)
                 if len(sample_audio) == 0:
                     return {"text": "", "language": ""}
                 res = _generate_with_compat(
