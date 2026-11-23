@@ -23,6 +23,7 @@ export interface TitleView {
 	year?: number;
 	overview?: string;
 	original_language?: string;
+	other_names?: string[];
 	ids: Record<string, string> | null;
 	keep_up_to_date: boolean;
 	why_added: string;
@@ -52,6 +53,14 @@ export interface TitleView {
 	// Members' average out of 10 and its vote count (not the age rating); missing when not known.
 	score?: number;
 	votes?: number;
+	// IMDb's score and votes, the Rotten Tomatoes critics percent and the Metascore, from OMDb; missing when not known.
+	imdb_rating?: number;
+	imdb_votes?: number;
+	rotten_tomatoes?: number;
+	metacritic?: number;
+	// Trakt's rating out of 10 and its votes, read with the Trakt client id; missing when not known.
+	trakt_rating?: number;
+	trakt_votes?: number;
 	added_at?: string;
 	size_bytes?: number;
 	copy?: TitleCopy;
@@ -83,6 +92,7 @@ export interface ArtistInfo {
 	downloading?: number;
 	failed?: number;
 	next_release?: string;
+	last_release?: string;
 	bio?: string;
 }
 
@@ -133,6 +143,7 @@ export interface SeasonSummary {
 }
 
 export interface ShowInfo {
+ issues?: { state: string; reason: string }[];
 	details_source: string;
 	episode_order: string;
 	episode_group?: { id: string; name: string; type: number } | null;
@@ -165,6 +176,10 @@ export interface EpisodeSlot {
 	state_label: string;
 	reason?: string;
 	file_id?: number;
+	good_enough?: boolean;
+	// Set when the list is asked for with points=1.
+	points?: number;
+	good_enough_points?: number;
 }
 
 export interface EpisodeView {
@@ -266,6 +281,8 @@ export interface Ask {
 	state: AskState;
 	state_label: string;
 	title_id?: number;
+	// via_plugin is the plugin that made the request for the person.
+	via_plugin?: string;
 	asked_by: Who;
 	asked_at: string;
 	people: (Who & { asked_at: string; from_watchlist?: boolean })[];
@@ -310,7 +327,8 @@ export type Moment =
 	| 'add'
 	| 'delete'
 	| 'health'
-	| 'needs_decision';
+	| 'needs_decision'
+	| 'plugin_message';
 
 export interface AlertView {
 	id: number;
@@ -352,6 +370,11 @@ export interface LibraryFolder {
 	copies_expected?: boolean;
 	new_title_tags?: string[];
 	only_tagged_sources?: boolean;
+	// new_title_audio: audio languages the main copy of each new movie or show here needs.
+	new_title_audio?: string[];
+	look_only?: boolean;
+	/** Movies sit as files right in this folder, no folder each. */
+	flat?: boolean;
 }
 
 export interface Reason {
@@ -360,6 +383,25 @@ export interface Reason {
 	text: string;
 	// What a points rule added or took.
 	points?: number;
+}
+
+// What the server read from a Release name: the same reading the judge used.
+export interface ReleaseRead {
+	resolution?: number;
+	source?: string;
+	codec?: string;
+	hdr?: string[];
+	audio?: string;
+	channels?: string;
+	atmos?: boolean;
+	languages?: string[];
+	edition?: string[];
+	group?: string;
+	proper?: boolean;
+	format?: string;
+	bitrate?: number;
+	bit_depth?: number;
+	lossless?: boolean;
 }
 
 export interface ReleaseView {
@@ -373,6 +415,7 @@ export interface ReleaseView {
 	found_by: string;
 	source_id: number;
 	source_name: string;
+	info_url?: string;
 	slot_id?: number;
 	version?: string;
 	title_id?: number;
@@ -388,6 +431,7 @@ export interface ReleaseView {
 	needs_force: boolean;
 	gate_skipped: boolean;
 	reasons: Reason[];
+	read?: ReleaseRead;
 	created_at: string;
 	episode?: string;
 	slot_ids?: number[];
@@ -401,6 +445,18 @@ export interface ReleasePage {
 	limit: number;
 	offset: number;
 	running_job_ids?: number[];
+	// The Pick rules changed after the listed search, so its verdicts may be out of date.
+	rules_changed?: boolean;
+	// Only with no releases: the newest finished search and what came of it.
+	last_search?: LastSearch;
+}
+
+export interface LastSearch {
+	at?: string;
+	failed: boolean;
+	found: number;
+	dropped: number;
+	dropped_sources?: string[];
 }
 
 export interface Choice {
@@ -441,6 +497,8 @@ export interface EventRecord {
 	Data?: Record<string, unknown>;
 	Actor?: { kind: string; id?: number };
 	actor_name?: string;
+	// ViaPlugin is the plugin the change came through, if any.
+	ViaPlugin?: string | null;
 	// asked_names are the askers' current names by saved id (marked when deleted).
 	asked_names?: string[];
 	title_name?: string;
@@ -582,6 +640,8 @@ export interface DownloadRow extends DownloadView {
 	can_import?: boolean;
 	/** A refused import: why (the importer's words) and the folder Import files by hand opens on. */
 	refused_why?: string;
+	/** Episodes a partly done import still waits for; remove after seeding holds the torrent until they are in. */
+	cleanup_wait?: string[];
 	import_folder?: string;
 	replaced?: boolean;
 	kind?: 'movie' | 'show' | 'artist';
@@ -645,6 +705,8 @@ export interface Decision {
 	release_name?: string;
 	has_copy: boolean;
 	since: string;
+	// When the import is tried again on its own; absent when the card waits for a person.
+	retry_at?: string;
 	kind?: 'movie' | 'show' | 'artist';
 	episode?: EpisodeLine;
 	album?: string;

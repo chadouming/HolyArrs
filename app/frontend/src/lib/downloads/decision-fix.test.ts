@@ -1,4 +1,4 @@
-import { canImportAgain, mayImportAgain, decisionFix, noMatchKind, packImportAgain, reasonKind, reasonWords, refusedLine } from './decision-fix.ts';
+import { canImportAgain, importAgainBeside, retryMinutes, mayImportAgain, decisionFix, noMatchKind, packImportAgain, reasonKind, reasonWords, refusedLine } from './decision-fix.ts';
 import { lang } from '#lib/core/i18n/i18n.svelte.ts';
 import en from '../core/i18n/messages/en/server-lines.json';
 import { plainReason } from '../core/plain.ts';
@@ -222,24 +222,43 @@ describe('album or season card', () => {
 	});
 });
 
-describe('Import again when no file matched or import refused', () => {
-	it('is offered in the menu for conflicts/refusals and Import files by hand still leads', () => {
+describe('Import again when no file matched', () => {
+	it('is offered in the menu and Import files by hand still leads', () => {
 		const d = { kind: 'show', why: 'ran_out', download_id: 7, import_folder: '/dl/x', reason: 'no file in the download matched an episode; match the files by hand' } as Parameters<typeof mayImportAgain>[0];
 		expect(mayImportAgain(d)).toBe(true);
 		expect(canImportAgain(d)).toBe(false);
 		expect(decisionFix(d)).toBe('match');
-		for (const conflict of [
-			{ ...d, reason: 'nothing could be placed' },
-			dec({ ...d, why: 'conflict', reason: 'the file for S01E09 could not be placed: Tokyo Ghoul; holds S01E09; a sample, not the full video (it plays 60 seconds)' }),
-			dec({ ...d, why: 'conflict', reason: 'a file with the same name that HolyArrs did not place is already in the folder; move it out of the folder, then import again' }),
-			dec({ ...d, why: 'ran_out', reason: 'HolyArrs refused Show.S01E01.mkv: the Downloader reported a file outside the download folder.' })
-		]) {
-			expect(mayImportAgain(conflict)).toBe(true);
-			expect(canImportAgain(conflict)).toBe(false);
-		}
 		expect(mayImportAgain({ ...d, download_id: undefined })).toBe(false);
-		expect(mayImportAgain({ ...d, import_folder: undefined, why: 'conflict', reason: 'nothing could be placed' })).toBe(false);
-		expect(mayImportAgain({ ...d, why: 'conflict', reason: 'edition is unknown; confirm the edition or choose an unconstrained Version' })).toBe(false);
-		expect(mayImportAgain({ ...d, why: 'ran_out', reason: 'no other Release passed the Pick rules' })).toBe(false);
+		expect(mayImportAgain({ ...d, reason: 'nothing could be placed' })).toBe(false);
+	});
+});
+
+describe('Import again beside the lead fix', () => {
+	const notThere = "HolyArrs can't find the downloaded file where the Downloader says it is; check the path pair in Settings > Downloaders and that the download folder is mounted, then import again";
+	const cases: [string, Record<string, unknown>, boolean][] = [
+		['files not there yet: Open Downloaders leads, Import again beside it', { reason: notThere }, true],
+		['no file matched: Import files by hand leads, Import again beside it', { kind: 'show', why: 'ran_out', import_folder: '/dl/x', reason: 'no file in the download matched an episode; match the files by hand' }, true],
+		['Import again already leads', { reason: 'the file could not be placed: something went wrong; see the log' }, false],
+		['no download to import again', { download_id: undefined, reason: notThere }, false],
+		['a reason Import again does not answer', { reason: 'no other Release passed the Pick rules' }, false]
+	];
+	it.each(cases)('%s', (_name, o, want) => {
+		const d = dec(o);
+		expect(importAgainBeside(d, decisionFix(d))).toBe(want);
+	});
+});
+
+describe('minutes until the import is tried again', () => {
+	const now = Date.parse('2026-11-22T12:00:00Z');
+	const cases: [string, string | undefined, number | null][] = [
+		['waits for a person', undefined, null],
+		['unreadable time', 'soon', null],
+		['four and a bit minutes', '2026-11-22T12:04:10Z', 5],
+		['exactly four minutes', '2026-11-22T12:04:00Z', 4],
+		['a few seconds', '2026-11-22T12:00:05Z', 1],
+		['already due counts as one', '2026-11-22T11:58:00Z', 1]
+	];
+	it.each(cases)('%s', (_name, at, want) => {
+		expect(retryMinutes(at, now)).toBe(want);
 	});
 });

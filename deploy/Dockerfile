@@ -9,8 +9,8 @@ WORKDIR /src/app/frontend
 COPY app/frontend/package.json app/frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts --no-audit --no-fund
 COPY app/frontend/ ./
-# The language files stay plain here; the build stage packs them with bzip2.
-RUN HOLYARRS_LANGUAGES_PLAIN=1 npm run build
+# Only English is built in; the other languages are signed language packs.
+RUN npm run build
 
 # Build stage: runs on the build machine and cross-compiles for the target,
 # so multi-arch builds (amd64, arm64, armv7) need no emulation.
@@ -25,13 +25,9 @@ ARG GOFLAGS
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-# The pages just built are what the program embeds; packing them before copying
-# Go sources lets Go-only rebuilds reuse the packed frontend layer.
+# The pages just built are what the program embeds; copying them before Go
+# sources lets Go-only rebuilds reuse the frontend layer.
 COPY --from=web /src/app/frontend/dist ./app/frontend/dist
-COPY deploy/pack_languages.py ./deploy/pack_languages.py
-# bzip2 is smaller than brotli for every language file (Python is part of the
-# Go image; the program unpacks with Go's own bzip2 reader).
-RUN python3 deploy/pack_languages.py app/frontend/dist
 COPY app/frontend/embed.go ./app/frontend/embed.go
 COPY app/backend/ ./app/backend/
 COPY VERSION ./

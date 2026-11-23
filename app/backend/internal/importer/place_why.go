@@ -183,3 +183,17 @@ func notPlacedWhy(root string, plan []mediafiles.PlanStep, res []mediafiles.Plac
 	}
 	return ""
 }
+
+// RetriesOnItsOwn reports whether an import that stopped for reason is tried
+// again on its own, the way Sonarr and Radarr look at a blocked download
+// again on each pass: the files may not be there yet (a sync from a seedbox
+// still copying them in), the folder read was too slow, or the import gave
+// up on a passing fault. A permission, a setting or a match by hand waits
+// for a person.
+func RetriesOnItsOwn(reason string) bool {
+	switch reason {
+	case notThereWhy, gaveUpWhy, SlowReadWhy:
+		return true
+	}
+	return false
+}

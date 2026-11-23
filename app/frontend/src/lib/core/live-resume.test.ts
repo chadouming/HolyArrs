@@ -145,11 +145,11 @@ describe('live resume', () => {
 		doc.setHidden(false);
 		expect(made).toHaveLength(6);
 
-		// Confirm tries was reset to 0: next error schedules a 1s retry, not 15s.
+		// Confirm tries was reset to 0: next error schedules a 0.8-1s retry, not 8-10s.
 		made[5].onerror?.(new Event('error'));
-		vi.advanceTimersByTime(999);
+		vi.advanceTimersByTime(799);
 		expect(made).toHaveLength(6);
-		vi.advanceTimersByTime(1);
+		vi.advanceTimersByTime(201);
 		expect(made).toHaveLength(7);
 		live.stop();
 	});
@@ -203,9 +203,9 @@ describe('live resume', () => {
 
 		// Verify backoff was reset to 0 by probeAuth returning ok.
 		made[2].onerror?.(new Event('error'));
-		vi.advanceTimersByTime(999);
+		vi.advanceTimersByTime(799);
 		expect(made).toHaveLength(3);
-		vi.advanceTimersByTime(1);
+		vi.advanceTimersByTime(201);
 		expect(made).toHaveLength(4);
 		live.stop();
 	});

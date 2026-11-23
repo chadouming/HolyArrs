@@ -323,8 +323,8 @@ func TestSiteSourceAdd(t *testing.T) {
 	}
 	do(t, "POST", srv.URL+"/api/v1/sources", `{"name":"Nope","format":"site","site":"other"}`, 400)
 	do(t, "POST", srv.URL+"/api/v1/sources", `{"name":"Nope","format":"site","site":"knaben","protocol":"usenet"}`, 400)
-	raw := string(do(t, "POST", srv.URL+"/api/v1/sources", `{"name":"IPT","format":"site","site":"iptorrents","site_user":" 2134 ","api_key":"secretpasskey"}`, 201))
-	if strings.Contains(raw, "secretpasskey") {
+	raw := string(do(t, "POST", srv.URL+"/api/v1/sources", `{"name":"IPT","format":"site","site":"iptorrents","site_user":" 2134 ","api_key":"your-passkey"}`, 201))
+	if strings.Contains(raw, "your-passkey") {
 		t.Fatalf("key shown %s", raw)
 	}
 	// The user id is not a secret: it is shown, kept when not sent, and must be digits.

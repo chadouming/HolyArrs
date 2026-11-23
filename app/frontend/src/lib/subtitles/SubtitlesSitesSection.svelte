@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { editForm, withoutEditing } from '#lib/ui/edit-in-place.ts';
 	import { ask } from '#lib/ui/ask.svelte.ts';
 	import { t } from '#lib/core/i18n/i18n.svelte.ts';
 	import Field from '#lib/ui/Field.svelte';
@@ -169,7 +170,7 @@
 	</div>
 
 	{#if editing && form}
-		<form class="card" onsubmit={save} aria-labelledby="h-site-form">
+		<form class="card" use:editForm={isNew ? null : editing.ID} onsubmit={save} aria-labelledby="h-site-form">
 			<h3 id="h-site-form" class="h3">{isNew ? t('settings.subtitles.add') : t('settings.subtitles.change', { name: editing.name })}</h3>
 			{#if isNew}
 				<fieldset class="group">
@@ -257,10 +258,10 @@
 		<EmptyState compact icon="subtitle" title={t('settings.subtitles.none')} text={t('settings.subtitles.noneText')} action={{ label: t('settings.subtitles.add'), icon: 'plus', onclick: startAdd }} />
 	{:else}
 		<ul class="list">
-			{#each sites as s (s.ID)}
+			{#each withoutEditing(sites, editing?.ID, (x) => x.ID) as s (s.ID)}
 				{@const k = kindOf(s.kind)}
 				{@const st = siteState(s, k, dateTime)}
-				<li class="card" data-testid="subtitle-site">
+				<li class="card" data-testid="subtitle-site" data-edit-row={s.ID}>
 					<div class="head">
 						<span class="ic"><Icon name="subtitle" /></span>
 						<div class="grow">
@@ -288,7 +289,7 @@
 							{:else}
 								<Button type="button" onclick={() => setPaused(s, true)} aria-label={t('settings.subtitles.pauseName', { name: s.name })}>{t('settings.subtitles.pause')}</Button>
 							{/if}
-							<Button type="button" onclick={() => startChange(s)} aria-label={t('settings.subtitles.changeName', { name: s.name })}>{t('settings.subtitles.changeButton')}</Button>
+							<Button type="button" data-edit-change onclick={() => startChange(s)} aria-label={t('settings.subtitles.changeName', { name: s.name })}>{t('settings.subtitles.changeButton')}</Button>
 						{/if}
 						<Button type="button" onclick={() => remove(s)} aria-label={t('settings.subtitles.removeName', { name: s.name })}>{t('settings.subtitles.remove')}</Button>
 					</div>

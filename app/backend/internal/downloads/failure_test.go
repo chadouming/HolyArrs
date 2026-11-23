@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,7 +128,7 @@ func TestStalledThenActedOn(t *testing.T) {
 	}
 	w.clock = w.clock.Add(time.Minute)
 	_, _ = m2.SyncOnce(ctx)
-	wantFailedPath(t, w, id, "no progress for 24 hours", true)
+	wantStallRetry(t, w, id, "no progress for 24 hours")
 }
 
 func TestStallTimesComeFromSettings(t *testing.T) {
@@ -505,6 +506,66 @@ func TestVanishedFoundAgainLeavesATurnedDownRelease(t *testing.T) {
 			}
 			if sl := w.slot(t); sl.State != before {
 				t.Fatalf("slot %s, want it left %s", sl.State, before)
+			}
+		})
+	}
+}
+
+// wantStallRetry checks a stall failure: the download fails and the Slot
+// is searched again, but the Release is not turned down and the torrent leaves
+// the Downloader with its files kept, so the same Release can resume later.
+func wantStallRetry(t *testing.T, w *world, id int64, reason string) {
+	t.Helper()
+	d := w.download(t, id)
+	if d.State != "failed" || d.StateReason == nil || !strings.Contains(*d.StateReason, reason) {
+		t.Fatalf("download %s %v, want failed with %q", d.State, d.StateReason, reason)
+	}
+	if r := w.release(t); r.State == "turned_down" {
+		t.Fatalf("stall turned the Release down: %v", r.Verdict)
+	}
+	if sl := w.slot(t); sl.State != mediafiles.SlotFailed {
+		t.Fatalf("slot %s", sl.State)
+	}
+	if len(w.failedSlots) != 1 || w.failedSlots[0] != w.slotID {
+		t.Fatalf("searched again: %v", w.failedSlots)
+	}
+	if len(w.fake.deleted) != 1 || w.fake.deleted[0] != hash+"|false" {
+		t.Fatalf("want removed with files kept, deleted %v", w.fake.deleted)
+	}
+}
+
+// Only a stall keeps the Release and the files; other automatic failures still
+// turn it down and delete.
+func TestStallKeepsReleaseOthersDoNot(t *testing.T) {
+	for _, tc := range []struct {
+		reason          string
+		stalled, delete bool
+	}{
+		{"no progress for 1 hour", true, false},
+		{"no progress for 24 hours", true, false},
+		{"dangerous files: x.js", false, true},
+		{clientSaysPrefix + "disk full", false, false},
+		{"marked failed", false, true},
+	} {
+		t.Run(tc.reason, func(t *testing.T) {
+			w, m := setup(t)
+			letChange(t, m)
+			id := grabbed(t, w, m)
+			d := w.download(t, id)
+			next := d
+			next.State, next.StateReason = "failed", &tc.reason
+			dr := w.downloader(t, d.DownloaderID)
+			m.failed(context.Background(), dr, d, next, m.settings(context.Background()), domain.System)
+			if got := w.release(t).State == "turned_down"; got == tc.stalled {
+				t.Fatalf("turned down %v for %q", got, tc.reason)
+			}
+			if want := hash + "|" + fmt.Sprint(tc.delete); len(w.fake.deleted) != 1 || w.fake.deleted[0] != want {
+				t.Fatalf("deleted %v, want %s", w.fake.deleted, want)
+			}
+			var ev string
+			_ = w.s.ReadEvents().QueryRow("SELECT summary FROM events WHERE kind = 'download_failed' AND download_id = ? ORDER BY id DESC LIMIT 1", id).Scan(&ev)
+			if tc.stalled != strings.Contains(ev, "VPN may be offline") {
+				t.Fatalf("event %q", ev)
 			}
 		})
 	}

@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-// 0139 repairs plain 'system' actor values in transcode tables into valid JSON objects.
+// 0165 repairs plain 'system' actor values in transcode tables into valid JSON objects.
 func TestTranscodeActorMigration(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
-	old, err := Open(dir, Options{MainMigrations: upTo(t, 138)})
+	old, err := Open(dir, Options{MainMigrations: upTo(t, 164)})
 	if err != nil {
 		t.Fatal(err)
 	}

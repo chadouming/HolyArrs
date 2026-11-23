@@ -28,6 +28,18 @@ const extraSiteKind = "site"
 // that asks for one beside the key (IPTorrents). It is not a secret.
 const extraSiteUser = "site_user"
 
+// extraSiteLogin is the Extra key of how a Source signs in to IPTorrents:
+// "cookie" for a browser cookie, empty for user id + passkey (the default,
+// and what every Source saved before the choice existed uses).
+const extraSiteLogin = "site_login"
+
+// extraSiteAgent is the Extra key of the browser user agent sent with an
+// IPTorrents cookie. A cookie made behind the site's bot check only works
+// with the browser that made it. It is not a secret.
+const extraSiteAgent = "site_agent"
+
+// iptCookieGone is what the person sees when the site no longer takes the cookie.
+const iptCookieGone = "IPTorrents no longer takes the cookie; copy a fresh one or switch to user ID + passkey"
 // Site describes one built-in site for the add form.
 type Site struct {
 	ID      string `json:"id"`
@@ -168,6 +180,24 @@ func (c *Client) siteCall(ctx context.Context, base, text string, q Query) ([]It
 		}
 		return parseSubsPlease(raw)
 	case "iptorrents":
+		if c.cfg.SiteLogin == "cookie" {
+			cookie := iptCookie(c.cfg.APIKey)
+			if cookie == "" {
+				return nil, &Error{Kind: KindLoginRefused, Msg: "IPTorrents needs your browser cookie"}
+			}
+			raw, err := c.send(ctx, http.MethodGet, base+"/t?"+iptSearchValues(text).Encode(), nil, iptCookieHeader(cookie, c.cfg.SiteAgent))
+			if err != nil {
+				var se *Error
+				if errors.As(err, &se) && se.Kind == KindLoginRefused {
+					return nil, &Error{Kind: KindLoginRefused, Msg: iptCookieGone}
+				}
+				return nil, err
+			}
+			if iptSignIn(string(raw)) {
+				return nil, &Error{Kind: KindLoginRefused, Msg: iptCookieGone}
+			}
+			return parseIPTorrents(raw, base, "")
+		}
 		k := iptKeys(c.cfg.APIKey, c.cfg.SiteUser)
 		if k.uid != "" && k.passkey != "" {
 			// The site's own RSS: the newest list of the wanted categories, or a search of them.
@@ -194,13 +224,7 @@ func (c *Client) siteCall(ctx context.Context, base, text string, q Query) ([]It
 			return nil, &Error{Kind: KindLoginRefused, Msg: "IPTorrents needs your user id and your passkey"}
 		}
 		// A Source saved with a browser cookie and no passkey still reads the site's search page.
-		v := url.Values{"o": {"seeders"}}
-		if text != "" {
-			v.Set("q", text)
-		} else {
-			v.Set("o", "time")
-		}
-		raw, err := c.send(ctx, http.MethodGet, base+"/t?"+v.Encode(), nil, http.Header{"Cookie": {k.cookie()}})
+		raw, err := c.send(ctx, http.MethodGet, base+"/t?"+iptSearchValues(text).Encode(), nil, http.Header{"Cookie": {k.cookie()}})
 		if err != nil {
 			return nil, err
 		}
@@ -254,6 +278,7 @@ func parseKnaben(raw []byte) ([]Item, error) {
 		if it.GUID == "" {
 			it.GUID = h.Details
 		}
+		it.InfoURL = webLink(h.Details)
 		if hash := strings.ToLower(strings.TrimSpace(h.Hash)); releasename.ValidInfoHash(hash) {
 			it.InfoHash = hash
 		}
@@ -448,6 +473,10 @@ func iptKeys(raw, user string) iptKey {
 		k.passkey = strings.TrimSpace(raw)
 		return k
 	}
+	if _, query, ok := strings.Cut(raw, "?"); ok && strings.Contains(raw, "://") {
+		// A pasted RSS or download link from the site: read its query.
+		raw = query
+	}
 	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == ';' || r == '&' || r == '\n' }) {
 		name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
 		name, value = strings.TrimSpace(name), strings.TrimSpace(value)
@@ -469,6 +498,37 @@ func iptKeys(raw, user string) iptKey {
 		}
 	}
 	return k
+}
+
+// iptSearchValues is the search page's query: best seeded first for a search,
+// newest first for the plain list.
+func iptSearchValues(text string) url.Values {
+	v := url.Values{"o": {"seeders"}}
+	if text != "" {
+		v.Set("q", text)
+	} else {
+		v.Set("o", "time")
+	}
+	return v
+}
+
+// iptCookie cleans a browser cookie as pasted: one line, without a leading
+// "Cookie:" that some browsers copy along.
+func iptCookie(raw string) string {
+	s := strings.Join(strings.Fields(raw), " ")
+	if len(s) > 7 && strings.EqualFold(s[:7], "cookie:") {
+		s = strings.TrimSpace(s[7:])
+	}
+	return strings.Trim(s, "; ")
+}
+
+// iptCookieHeader is the Cookie header, with the browser's user agent when one was given.
+func iptCookieHeader(cookie, agent string) http.Header {
+	h := http.Header{"Cookie": {cookie}}
+	if agent = strings.TrimSpace(agent); agent != "" {
+		h.Set("User-Agent", agent)
+	}
+	return h
 }
 
 // cookie is the Cookie header, empty when no pass was given.
@@ -669,6 +729,12 @@ func FileHeader(ctx context.Context, src domain.Source, sec SecretReader) (http.
 	cfg, err := ConfigFor(ctx, src, sec)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.SiteLogin == "cookie" {
+		if c := iptCookie(cfg.APIKey); c != "" {
+			return iptCookieHeader(c, cfg.SiteAgent), nil
+		}
+		return nil, nil
 	}
 	k := iptKeys(cfg.APIKey, cfg.SiteUser)
 	if k.uid != "" && k.passkey != "" {

@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// 0138 widens subtitles.state CHECK to allow 'skipped' and adds history/slot indexes.
+// 0164 widens subtitles.state CHECK to allow 'skipped' and adds history/slot indexes.
 func TestSubtitleSkippedMigration(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
-	old, err := Open(dir, Options{MainMigrations: upTo(t, 137)})
+	old, err := Open(dir, Options{MainMigrations: upTo(t, 163)})
 	if err != nil {
 		t.Fatal(err)
 	}

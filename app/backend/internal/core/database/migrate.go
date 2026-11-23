@@ -186,6 +186,55 @@ func skipSpaceCheck() bool {
 	return false
 }
 
+type forkMigrationRemap struct {
+	oldVersion int
+	oldName    string
+	newVersion int
+	newName    string
+}
+
+// mainForkMigrationRemaps maps the six fork-local main migrations that were
+// previously numbered 0134..0139 onto 0160..0165 after upstream 1.3.0 claimed
+// 0134..0159. Matching requires both version and exact filename so pure upstream
+// databases are never altered.
+var mainForkMigrationRemaps = []forkMigrationRemap{
+	{134, "0134_title_part_names.sql", 160, "0160_title_part_names.sql"},
+	{135, "0135_subtitle_transcribed.sql", 161, "0161_subtitle_transcribed.sql"},
+	{136, "0136_subtitle_integrity.sql", 162, "0162_subtitle_integrity.sql"},
+	{137, "0137_transcode.sql", 163, "0163_transcode.sql"},
+	{138, "0138_subtitle_skipped.sql", 164, "0164_subtitle_skipped.sql"},
+	{139, "0139_transcode_actor_json.sql", 165, "0165_transcode_actor_json.sql"},
+}
+
+func remapForkMigration(label string, ver int, name string) (int, string, bool) {
+	if label != "main" {
+		return ver, name, false
+	}
+	for _, r := range mainForkMigrationRemaps {
+		if r.oldVersion == ver && r.oldName == name {
+			return r.newVersion, r.newName, true
+		}
+	}
+	return ver, name, false
+}
+
+func remapMainForkMigrations(ctx context.Context, conn *sql.Conn) error {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, r := range mainForkMigrationRemaps {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE schema_migrations SET version = ?, name = ? WHERE version = ? AND name = ?",
+			r.newVersion, r.newName, r.oldVersion, r.oldName,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // plan makes sure schema_migrations exists and returns the pending
 // migrations and the version applied. Data newer than this build is refused.
 func plan(w *writer, src fs.FS, label string) ([]migration, int, error) {
@@ -201,8 +250,31 @@ func plan(w *writer, src fs.FS, label string) ([]migration, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	cur, err := version(w.db)
+	rows, err := w.db.Query("SELECT version, name FROM schema_migrations")
 	if err != nil {
+		return nil, 0, err
+	}
+	applied := map[int]bool{}
+	cur := 0
+	for rows.Next() {
+		var v int
+		var name string
+		if err := rows.Scan(&v, &name); err != nil {
+			_ = rows.Close()
+			return nil, 0, err
+		}
+		if nv, _, ok := remapForkMigration(label, v, name); ok {
+			v = nv
+		}
+		applied[v] = true
+		if v > cur {
+			cur = v
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, err
+	}
+	if err := rows.Err(); err != nil {
 		return nil, 0, err
 	}
 	know := 0
@@ -214,7 +286,7 @@ func plan(w *writer, src fs.FS, label string) ([]migration, int, error) {
 	}
 	var out []migration
 	for _, m := range ms {
-		if m.version > cur {
+		if !applied[m.version] {
 			out = append(out, m)
 		}
 	}
@@ -282,7 +354,18 @@ func migrate(w *writer, path string, ms []migration, cur int, backupDir, label s
 	if _, err := conn.ExecContext(ctx, "PRAGMA synchronous=FULL"); err != nil {
 		return "", err
 	}
-	defer func() { _, _ = conn.ExecContext(ctx, "PRAGMA synchronous=NORMAL") }()
+	// Back to the writer's own level: FULL stays FULL with a rollback
+	// journal (Unraid share).
+	after := "NORMAL"
+	if w.rollback {
+		after = "FULL"
+	}
+	defer func() { _, _ = conn.ExecContext(ctx, "PRAGMA synchronous="+after) }()
+	if label == "main" {
+		if err := remapMainForkMigrations(ctx, conn); err != nil {
+			return "", fmt.Errorf("%w (%s): %v; the data was not changed", ErrMigration, label, err)
+		}
+	}
 	for _, m := range ms {
 		err := func() error {
 			tx, err := conn.BeginTx(ctx, nil)

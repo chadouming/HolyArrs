@@ -30,6 +30,7 @@ func (s *Service) Register(q *jobs.Queue) {
 	q.Handle(KindTranslate, s.handleTranslate)
 	q.Handle(KindModelDownload, s.handleModelDownload)
 	q.Handle(KindTranscribe, s.handleTranscribe)
+	q.Handle(KindClean, s.handleClean)
 	if s.Enqueue == nil {
 		s.Enqueue = func(ctx context.Context, kind string, subj *domain.Subject, params map[string]any, key string) error {
 			_, _, err := q.Enqueue(ctx, kind, subj, params, key, domain.System)

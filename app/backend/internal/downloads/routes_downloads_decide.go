@@ -116,6 +116,9 @@ type DecisionView struct {
 	ReleaseName string    `json:"release_name,omitempty"`
 	HasCopy     bool      `json:"has_copy"`
 	Since       time.Time `json:"since"`
+	// RetryAt is when the import is tried again on its own; absent when the
+	// card waits for a person.
+	RetryAt *time.Time `json:"retry_at,omitempty"`
 	// Shows: the episode, and the pack it came in (the other episodes of
 	// the same download that also wait for a decision).
 	// Artists: Episode is the track, Pack every track of the album
@@ -214,6 +217,7 @@ func (a *Web) decisions(ctx context.Context, slotID int64) ([]DecisionView, erro
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	a.retryTimes(ctx, out)
 	// The downloads and the episode lines of every row are read together.
 	var dlIDs []int64
 	for i := range out {
@@ -654,6 +658,8 @@ type EpisodeLine struct {
 	Name    string `json:"name,omitempty"`
 	State   string `json:"state"`
 	Track   bool   `json:"track,omitempty"`
+	// elsewhere: the Slot waits on another download now.
+	elsewhere bool
 }
 
 // episodeLines reads the episodes of a show download's Slots, in order.

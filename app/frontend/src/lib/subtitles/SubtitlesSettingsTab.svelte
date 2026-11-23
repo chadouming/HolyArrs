@@ -12,10 +12,12 @@
 	import {
 		BuiltInModels,
 		LanguageWants as WishEditor,
+		langName,
 		speechReady,
 		translatorBody,
 		translatorReady,
 		wishProblem,
+		type CleanSteps,
 		type Language,
 		type ModelView,
 		type SiteKind,
@@ -179,6 +181,53 @@
 			if (alive) setError = message(err);
 		} finally {
 			if (alive) setBusy = false;
+		}
+	}
+
+	// Cleanup steps per language. The "*" row is every language without its own row.
+	const noSteps: CleanSteps = { ads: false, hi: false, tags: false, emoji: false, ocr: false, caps: false, spacing: false, overlap: false };
+	let cleanLang = $state('*');
+	const cleanRows = $derived(settings ? Object.keys(settings.clean ?? {}).sort((a, b) => (a === '*' ? -1 : b === '*' ? 1 : a.localeCompare(b))) : []);
+	const cleanStepsNow = $derived(settings ? (settings.clean[cleanLang] ?? settings.clean['*'] ?? noSteps) : noSteps);
+	function cleanRowName(code: string) {
+		return code === '*' ? t('settings.subtitles.cleanEvery') : langName(code, langs);
+	}
+	function pickCleanLang(code: string) {
+		if (!settings) return;
+		if (!settings.clean) settings.clean = { '*': { ...noSteps, ads: true } };
+		// A new language starts from the every-language steps.
+		if (!settings.clean[code]) settings.clean[code] = { ...(settings.clean['*'] ?? noSteps) };
+		cleanLang = code;
+	}
+	function setStep(k: keyof CleanSteps, on: boolean) {
+		if (!settings) return;
+		pickCleanLang(cleanLang);
+		settings.clean[cleanLang] = { ...settings.clean[cleanLang], [k]: on };
+	}
+	function removeCleanLang() {
+		if (!settings || cleanLang === '*') return;
+		const { [cleanLang]: _, ...rest } = settings.clean;
+		settings.clean = rest;
+		cleanLang = '*';
+	}
+	const cleanSteps = $derived([
+		{ k: 'tags', label: t('settings.subtitles.cleanTags'), hint: '' },
+		{ k: 'emoji', label: t('settings.subtitles.cleanEmoji'), hint: '' },
+		{ k: 'ocr', label: t('settings.subtitles.cleanOCR'), hint: t('settings.subtitles.cleanOCRHint') },
+		{ k: 'caps', label: t('settings.subtitles.cleanCaps'), hint: '' },
+		{ k: 'spacing', label: t('settings.subtitles.cleanSpacing'), hint: '' },
+		{ k: 'overlap', label: t('settings.subtitles.cleanOverlap'), hint: t('settings.subtitles.cleanOverlapHint') }
+	] as const);
+	let cleanBusy = $state(false);
+	async function cleanAll() {
+		cleanBusy = true;
+		try {
+			await api.post('/subtitles/clean', {});
+			if (alive) toasts.push(t('settings.subtitles.cleanAllQueued'), 'info');
+		} catch (err) {
+			if (alive) toasts.push(t('settings.subtitles.cleanAllFailed'), 'fail', { body: message(err) });
+		} finally {
+			if (alive) cleanBusy = false;
 		}
 	}
 </script>
@@ -354,6 +403,41 @@
 						</Field>
 					{/snippet}
 				</SettingsCard>
+				<SettingsCard id="clean-subs" title={t('settings.subtitles.clean')} description={t('settings.subtitles.cleanDesc')}>
+					<div class="clean-for">
+						<Field id="clean-lang" label={t('settings.subtitles.cleanRow')}>
+							<select id="clean-lang" class="input narrow" value={cleanLang} onchange={(e) => pickCleanLang(e.currentTarget.value)} data-testid="clean-lang">
+								{#each cleanRows as code (code)}<option value={code}>{cleanRowName(code)}</option>{/each}
+								<optgroup label={t('settings.subtitles.cleanAddLang')}>
+									{#each langs.filter((l) => !cleanRows.includes(l.code)) as l (l.code)}<option value={l.code}>{l.name}</option>{/each}
+								</optgroup>
+							</select>
+						</Field>
+						{#if cleanLang !== '*'}
+							<Button size="sm" variant="plain" onclick={removeCleanLang} data-testid="clean-lang-remove">{t('settings.subtitles.cleanRemoveLang')}</Button>
+						{/if}
+					</div>
+					<label class="checkline">
+						<input id="clean-ads" type="checkbox" checked={cleanStepsNow.ads} onchange={(e) => setStep('ads', e.currentTarget.checked)} />
+						<span><b>{t('settings.subtitles.cleanAds')}</b><br /><span class="hint">{t('settings.subtitles.cleanAdsHint')}</span></span>
+					</label>
+					<label class="checkline">
+						<input id="clean-hi" type="checkbox" checked={cleanStepsNow.hi} onchange={(e) => setStep('hi', e.currentTarget.checked)} />
+						<span><b>{t('settings.subtitles.cleanHI')}</b><br /><span class="hint">{t('settings.subtitles.cleanHIHint')}</span></span>
+					</label>
+					{#snippet advanced()}
+						{#each cleanSteps as c (c.k)}
+							<label class="checkline">
+								<input id="clean-{c.k}" type="checkbox" checked={cleanStepsNow[c.k]} onchange={(e) => setStep(c.k, e.currentTarget.checked)} />
+								<span><b>{c.label}</b>{#if c.hint}<br /><span class="hint">{c.hint}</span>{/if}</span>
+							</label>
+						{/each}
+						<p class="small muted">{t('settings.subtitles.cleanNote')}</p>
+						<div>
+							<Button size="sm" variant="plain" onclick={cleanAll} disabled={cleanBusy} busy={cleanBusy} data-testid="subtitle-clean-library">{t('settings.subtitles.cleanAll')}</Button>
+						</div>
+					{/snippet}
+				</SettingsCard>
 				<SettingsCard id="sync-fix" title={t('settings.subtitles.syncFix')} description={t('settings.subtitles.syncFixDesc')}>
 					<p class="small muted">
 						{t('settings.subtitles.syncNote')}
@@ -499,6 +583,16 @@
 	}
 	.narrow {
 		max-width: 220px;
+	}
+	.clean-for {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: var(--s-3);
+	}
+	.clean-for :global(.field) {
+		flex: 1 1 220px;
+		min-width: 0;
 	}
 	.more {
 		margin-top: var(--s-4);

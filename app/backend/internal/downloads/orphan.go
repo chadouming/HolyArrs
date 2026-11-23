@@ -111,7 +111,7 @@ func (m *Manager) relink(ctx context.Context, o orphan, to int64) bool {
 			return err
 		}
 		if d.State == "finished" {
-			woke, _, err = wakeSlots(ctx, tx, d, domain.System, false)
+			woke, _, err = wakeSlots(ctx, tx, d, domain.System, nil)
 		}
 		return err
 	})
@@ -134,7 +134,7 @@ func (m *Manager) relink(ctx context.Context, o orphan, to int64) bool {
 // waits for a person because the files could not be seen, read or written
 // goes back to importing: the person asked for the import again. It keeps
 // its reason meanwhile, and again holds each such Slot with that reason.
-func wakeSlots(ctx context.Context, tx *sql.Tx, d domain.Download, by domain.Actor, retry bool) (n int, again map[int64]string, err error) {
+func wakeSlots(ctx context.Context, tx *sql.Tx, d domain.Download, by domain.Actor, retry func(reason string) bool) (n int, again map[int64]string, err error) {
 	again = map[int64]string{}
 	for _, sid := range d.SlotIDs {
 		var sl mediafiles.Slot
@@ -153,7 +153,7 @@ func wakeSlots(ctx context.Context, tx *sql.Tx, d domain.Download, by domain.Act
 			}
 			n++
 		case mediafiles.SlotNeedsADecision:
-			if !retry || sl.LastReason == nil || !canRetryImportReason(*sl.LastReason) {
+			if retry == nil || sl.LastReason == nil || !retry(*sl.LastReason) {
 				continue
 			}
 			if err := mediafiles.MoveSlotTx(tx, sid, mediafiles.SlotImporting, *sl.LastReason, by); err != nil {
@@ -186,8 +186,14 @@ const slowReadWhy = importer.SlowReadWhy
 // their import queued, or go back to the card they were. A second click
 // while the folder of the same download is read starts no second read.
 func (m *Manager) ImportAgain(ctx context.Context, id int64, by domain.Actor) error {
+	return m.importAgainWith(ctx, id, by, canRetryImportReason)
+}
+
+// importAgainWith is Import again for the Slots whose reason retry accepts;
+// the other Slots of the download keep their cards.
+func (m *Manager) importAgainWith(ctx context.Context, id int64, by domain.Actor, retry func(reason string) bool) error {
 	ctx = context.WithoutCancel(ctx)
-	if err := m.waitsForImport(ctx, id); err != nil {
+	if err := m.waitsForImport(ctx, id, retry); err != nil {
 		return err
 	}
 	m.mu.Lock()
@@ -214,7 +220,7 @@ func (m *Manager) ImportAgain(ctx context.Context, id int64, by domain.Actor) er
 				}
 			}
 		}()
-		err := m.importAgain(ctx, id, by)
+		err := m.importAgain(ctx, id, by, retry)
 		done <- err
 		if err != nil && !errors.Is(err, ErrNotWaiting) {
 			log.Printf("downloads: import again of download %d: %v", id, err)
@@ -237,7 +243,7 @@ func (m *Manager) Rereading(id int64) bool {
 
 // waitsForImport is the quick check before any read: the download is there,
 // finished, and has a Slot that still waits for its files or for Import again.
-func (m *Manager) waitsForImport(ctx context.Context, id int64) error {
+func (m *Manager) waitsForImport(ctx context.Context, id int64, retry func(reason string) bool) error {
 	var d domain.Download
 	if err := database.Get(ctx, m.Store.Read(), "downloads", id, &d); err != nil {
 		return err
@@ -254,7 +260,7 @@ func (m *Manager) waitsForImport(ctx context.Context, id int64) error {
 		case mediafiles.SlotDownloading, mediafiles.SlotStalled:
 			return nil
 		case mediafiles.SlotNeedsADecision:
-			if sl.LastReason != nil && canRetryImportReason(*sl.LastReason) {
+			if sl.LastReason != nil && retry(*sl.LastReason) {
 				return nil
 			}
 		}
@@ -262,7 +268,7 @@ func (m *Manager) waitsForImport(ctx context.Context, id int64) error {
 	return ErrNotWaiting
 }
 
-func (m *Manager) importAgain(ctx context.Context, id int64, by domain.Actor) error {
+func (m *Manager) importAgain(ctx context.Context, id int64, by domain.Actor, retry func(reason string) bool) error {
 	var d domain.Download
 	if err := database.Get(ctx, m.Store.Read(), "downloads", id, &d); err != nil {
 		return err
@@ -318,7 +324,7 @@ func (m *Manager) importAgain(ctx context.Context, id int64, by domain.Actor) er
 		if d.State != "finished" && d.State != "seeding" {
 			return ErrNotWaiting
 		}
-		n, woke, err := wakeSlots(ctx, tx, d, by, true)
+		n, woke, err := wakeSlots(ctx, tx, d, by, retry)
 		if err == nil && n == 0 {
 			err = ErrNotWaiting
 		}
@@ -446,7 +452,7 @@ func canRetryImportReason(reason string) bool {
 // Slot waiting on this download with a retryable import reason.
 func canImportDecisionRow(d domain.Download, slots map[int64]slotInfo) bool {
 	for _, sid := range d.SlotIDs {
-		if si, ok := slots[sid]; ok && si.line.State == string(mediafiles.SlotNeedsADecision) && (!si.activeDL.Valid || si.activeDL.Int64 == d.ID) && canRetryImportReason(si.lastReason) {
+		if si, ok := slots[sid]; ok && si.line.State == string(mediafiles.SlotNeedsADecision) && (!si.active.Valid || si.active.Int64 == d.ID) && canRetryImportReason(si.lastReason) {
 			return true
 		}
 	}

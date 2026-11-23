@@ -57,7 +57,6 @@ function showSubtitles(Hls: typeof HlsType, hls: HlsType, video: HTMLVideoElemen
 	hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, clear);
 	return clear;
 }
-
 // target is the tallest picture worth fetching; floor is the least height to keep
 // whatever the player's size (a retry when a smaller one would not decode).
 export async function attachHLS(video: HTMLVideoElement, url: string, native: boolean, start = 0, target = 720, floor = 0): Promise<() => void> {
